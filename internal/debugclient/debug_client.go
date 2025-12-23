@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
+
+	"github.com/ppipada/inference-go/internal/logutil"
 )
 
 // DebugConfig controls how HTTP debug information is captured and redacted.
@@ -96,7 +97,7 @@ func (t *LogTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	debugResp.RequestDetails = reqDetails
 
 	if t.Cfg.LogToSlog {
-		slog.Debug("http_debug: request", "details", getDetailsStr(reqDetails))
+		logutil.Debug("http_debug: request", "details", getDetailsStr(reqDetails))
 	}
 
 	// Perform the request.
@@ -120,10 +121,10 @@ func (t *LogTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	if t.Cfg.LogToSlog {
 		if respDetails != nil {
-			slog.Debug("http_debug: response", "details", getDetailsStr(respDetails))
+			logutil.Debug("http_debug: response", "details", getDetailsStr(respDetails))
 		}
 		if debugResp.ErrorDetails != nil {
-			slog.Debug("http_debug: error", "details", getDetailsStr(debugResp.ErrorDetails))
+			logutil.Debug("http_debug: error", "details", getDetailsStr(debugResp.ErrorDetails))
 		}
 	}
 

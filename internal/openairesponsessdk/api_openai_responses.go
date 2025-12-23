@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -15,7 +14,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	openaiSharedConstant "github.com/openai/openai-go/v3/shared/constant"
 
-	"github.com/ppipada/inference-go/internal/debugclient"
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/internal/sdkutil"
 	"github.com/ppipada/inference-go/spec"
 )
@@ -23,26 +22,28 @@ import (
 // OpenAIResponsesAPI struct that implements the CompletionProvider interface.
 type OpenAIResponsesAPI struct {
 	ProviderParam *spec.ProviderParam
-	Debug         bool
-	client        *openai.Client
+
+	debugger spec.CompletionDebugger
+
+	client *openai.Client
 }
 
 func NewOpenAIResponsesAPI(
 	pi spec.ProviderParam,
-	debug bool,
+	debugger spec.CompletionDebugger,
 ) (*OpenAIResponsesAPI, error) {
 	if pi.Name == "" || pi.Origin == "" {
 		return nil, errors.New("openai responses api LLM: invalid args")
 	}
 	return &OpenAIResponsesAPI{
 		ProviderParam: &pi,
-		Debug:         debug,
+		debugger:      debugger,
 	}, nil
 }
 
 func (api *OpenAIResponsesAPI) InitLLM(ctx context.Context) error {
 	if !api.IsConfigured(ctx) {
-		slog.Debug(
+		logutil.Debug(
 			string(
 				api.ProviderParam.Name,
 			) + ": No API key given. Not initializing OpenAIResponsesAPI LLM object",
@@ -81,14 +82,15 @@ func (api *OpenAIResponsesAPI) InitLLM(ctx context.Context) error {
 		)
 	}
 
-	dbgCfg := debugclient.DefaultDebugConfig
-	dbgCfg.LogToSlog = api.Debug
-	httpClient := debugclient.NewDebugHTTPClient(dbgCfg)
-	opts = append(opts, option.WithHTTPClient(httpClient))
+	if api.debugger != nil {
+		if httpClient := api.debugger.HTTPClient(); httpClient != nil {
+			opts = append(opts, option.WithHTTPClient(httpClient))
+		}
+	}
 
 	c := openai.NewClient(opts...)
 	api.client = &c
-	slog.Info(
+	logutil.Info(
 		"openai responses api LLM provider initialized",
 		"name",
 		string(api.ProviderParam.Name),
@@ -100,7 +102,7 @@ func (api *OpenAIResponsesAPI) InitLLM(ctx context.Context) error {
 
 func (api *OpenAIResponsesAPI) DeInitLLM(ctx context.Context) error {
 	api.client = nil
-	slog.Info(
+	logutil.Info(
 		"openai responses api LLM: provider de initialized",
 		"name",
 		string(api.ProviderParam.Name),
@@ -136,8 +138,7 @@ func (api *OpenAIResponsesAPI) SetProviderAPIKey(
 func (api *OpenAIResponsesAPI) FetchCompletion(
 	ctx context.Context,
 	req *spec.FetchCompletionRequest,
-	onStreamTextData func(textData string) error,
-	onStreamThinkingData func(thinkingData string) error,
+	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
 	if api.client == nil {
 		return nil, errors.New("openai responses api LLM: client not initialized")
@@ -207,9 +208,12 @@ func (api *OpenAIResponsesAPI) FetchCompletion(
 		timeout = time.Duration(req.ModelParam.Timeout) * time.Second
 	}
 
-	ctx = debugclient.AddDebugResponseToCtx(ctx)
-	if req.ModelParam.Stream && onStreamTextData != nil && onStreamThinkingData != nil {
-		return api.doStreaming(ctx, params, onStreamTextData, onStreamThinkingData, timeout, toolChoiceNameMap)
+	if api.debugger != nil {
+		ctx = api.debugger.WrapContext(ctx)
+	}
+	useStream := req.ModelParam.Stream && opts != nil && opts.StreamHandler != nil
+	if useStream {
+		return api.doStreaming(ctx, req.ModelParam.Name, params, opts, timeout, toolChoiceNameMap)
 	}
 	return api.doNonStreaming(ctx, params, timeout, toolChoiceNameMap)
 }
@@ -224,7 +228,9 @@ func (api *OpenAIResponsesAPI) doNonStreaming(
 
 	oaiResp, err := api.client.Responses.New(ctx, params, option.WithRequestTimeout(timeout))
 	isNilResp := oaiResp == nil || len(oaiResp.Output) == 0
-	sdkutil.AttachDebugResp(ctx, resp, err, isNilResp, oaiResp)
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, oaiResp, err, isNilResp)
+	}
 	resp.Usage = usageFromOpenAIResponse(oaiResp)
 
 	if err != nil {
@@ -239,22 +245,54 @@ func (api *OpenAIResponsesAPI) doNonStreaming(
 
 func (api *OpenAIResponsesAPI) doStreaming(
 	ctx context.Context,
+	modelName spec.ModelName,
 	params responses.ResponseNewParams,
-	onStreamTextData, onStreamThinkingData func(string) error,
+	opts *spec.FetchCompletionOptions,
 	timeout time.Duration,
 	toolChoiceNameMap map[string]spec.ToolChoice,
 ) (*spec.FetchCompletionResponse, error) {
 	resp := &spec.FetchCompletionResponse{}
+	streamCfg := sdkutil.ResolveStreamConfig(opts)
+
+	emitText := func(chunk string) error {
+		if strings.TrimSpace(chunk) == "" {
+			return nil
+		}
+		event := spec.StreamEvent{
+			Kind:     spec.StreamContentKindText,
+			Provider: api.ProviderParam.Name,
+			Model:    modelName,
+			Text: &spec.StreamTextChunk{
+				Text: chunk,
+			},
+		}
+		return sdkutil.SafeCallStreamHandler(opts.StreamHandler, event)
+	}
+
+	emitThinking := func(chunk string) error {
+		if strings.TrimSpace(chunk) == "" {
+			return nil
+		}
+		event := spec.StreamEvent{
+			Kind:     spec.StreamContentKindThinking,
+			Provider: api.ProviderParam.Name,
+			Model:    modelName,
+			Thinking: &spec.StreamThinkingChunk{
+				Text: chunk,
+			},
+		}
+		return sdkutil.SafeCallStreamHandler(opts.StreamHandler, event)
+	}
 
 	writeTextData, flushTextData := sdkutil.NewBufferedStreamer(
-		onStreamTextData,
-		sdkutil.FlushInterval,
-		sdkutil.FlushChunkSize,
+		emitText,
+		streamCfg.FlushInterval,
+		streamCfg.FlushChunkSize,
 	)
 	writeThinkingData, flushThinkingData := sdkutil.NewBufferedStreamer(
-		onStreamThinkingData,
-		sdkutil.FlushInterval,
-		sdkutil.FlushChunkSize,
+		emitThinking,
+		streamCfg.FlushInterval,
+		streamCfg.FlushChunkSize,
 	)
 
 	var respFull responses.Response
@@ -322,7 +360,10 @@ func (api *OpenAIResponsesAPI) doStreaming(
 
 	streamErr := errors.Join(stream.Err(), streamWriteErr)
 	isNilResp := len(respFull.Output) == 0
-	sdkutil.AttachDebugResp(ctx, resp, streamErr, isNilResp, &respFull)
+
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, &respFull, streamErr, isNilResp)
+	}
 
 	resp.Usage = usageFromOpenAIResponse(&respFull)
 	if streamErr != nil {
@@ -498,7 +539,7 @@ func contentItemsToOpenAIInputContent(
 					OfInputImage: &oaiImg,
 				})
 			} else {
-				slog.Debug("no data or url present for image", "id", img.ID, "name", img.ImageName)
+				logutil.Debug("no data or url present for image", "id", img.ID, "name", img.ImageName)
 			}
 
 		case spec.ContentItemKindFile:
@@ -531,13 +572,13 @@ func contentItemsToOpenAIInputContent(
 					OfInputFile: &fileParam,
 				})
 			} else {
-				slog.Debug("no data or url present for file", "id", f.ID, "name", f.FileName)
+				logutil.Debug("no data or url present for file", "id", f.ID, "name", f.FileName)
 			}
 		case spec.ContentItemKindRefusal:
 			// Refusal should not be present in InputMessage.
 			continue
 		default:
-			slog.Debug("unknown content for input messages", "kind", it.Kind)
+			logutil.Debug("unknown content for input messages", "kind", it.Kind)
 		}
 	}
 	return out, nil
@@ -576,7 +617,7 @@ func contentItemsToOpenAIOutputContent(
 		case spec.ContentItemKindImage, spec.ContentItemKindFile:
 			// Image and PDF should not be present in OutputMessage.
 		default:
-			slog.Debug("unknown content for output messages", "kind", it.Kind)
+			logutil.Debug("unknown content for output messages", "kind", it.Kind)
 		}
 	}
 	return out, nil
@@ -943,7 +984,7 @@ func contentItemsToOpenAIFunctionCallOutputContent(
 					OfInputImage: &oaiImg,
 				})
 			} else {
-				slog.Debug("no data or url present for image", "id", img.ID, "name", img.ImageName)
+				logutil.Debug("no data or url present for image", "id", img.ID, "name", img.ImageName)
 			}
 
 		case spec.ContentItemKindFile:
@@ -976,13 +1017,13 @@ func contentItemsToOpenAIFunctionCallOutputContent(
 					OfInputFile: &fileParam,
 				})
 			} else {
-				slog.Debug("no data or url present for file", "id", f.ID, "name", f.FileName)
+				logutil.Debug("no data or url present for file", "id", f.ID, "name", f.FileName)
 			}
 		case spec.ContentItemKindRefusal:
 			// Refusal should not be present in call output.
 			continue
 		default:
-			slog.Debug("unknown content for input messages", "kind", it.Kind)
+			logutil.Debug("unknown content for input messages", "kind", it.Kind)
 		}
 	}
 	return out, nil

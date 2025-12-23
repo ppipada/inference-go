@@ -1,10 +1,10 @@
 package sdkutil
 
 import (
-	"log/slog"
 	"regexp"
 	"strings"
 
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/spec"
 )
 
@@ -45,7 +45,7 @@ func FilterMessagesByTokenCount(
 	filtered = pruneOrphanToolOutputs(filtered)
 
 	if len(filtered) < len(messages) {
-		slog.Debug(
+		logutil.Debug(
 			"filtered messages are less than input",
 			"originalCount", len(messages),
 			"filteredCount", len(filtered),

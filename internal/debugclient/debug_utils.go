@@ -3,16 +3,17 @@ package debugclient
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"strings"
+
+	"github.com/ppipada/inference-go/internal/logutil"
 )
 
 func DecodeAndPrintJSON(s string) {
 	var obj any
 	err := json.Unmarshal([]byte(s), &obj)
 	if err != nil {
-		slog.Info("json unmarshal error", "msg", err.Error())
+		logutil.Info("json unmarshal error", "msg", err.Error())
 	} else {
 		PrintJSON(obj)
 	}
@@ -22,9 +23,9 @@ func DecodeAndPrintJSON(s string) {
 func PrintJSON(v any) {
 	p, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		slog.Info("json marshal error", "msg", err.Error())
+		logutil.Info("json marshal error", "msg", err.Error())
 	} else {
-		slog.Info("request params", "json", string(p))
+		logutil.Info("request params", "json", string(p))
 	}
 }
 

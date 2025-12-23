@@ -4,6 +4,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ppipada/inference-go/spec"
 )
 
 const (
@@ -32,6 +34,8 @@ func NewBufferedStreamer(
 
 	// Background goroutine time-based flush.
 	go func() {
+		defer Recover("buffered streamer background flush panic")
+
 		for {
 			select {
 			case <-ticker.C:
@@ -85,4 +89,48 @@ func NewBufferedStreamer(
 	}
 
 	return write, flush
+}
+
+// SafeCallStreamHandler invokes the provided StreamHandler and converts any
+// panic into an error while logging the panic details. This prevents user
+// callbacks from crashing the streaming loop.
+func SafeCallStreamHandler(handler spec.StreamHandler, event spec.StreamEvent) (err error) {
+	if handler == nil {
+		return nil
+	}
+
+	defer Recover("stream handler panic",
+		"kind", event.Kind,
+		"provider", event.Provider,
+		"model", event.Model,
+	)
+
+	return handler(event)
+}
+
+// ResolvedStreamConfig is the fully-specified streaming configuration used by
+// providers after applying sensible defaults.
+type ResolvedStreamConfig struct {
+	FlushInterval  time.Duration
+	FlushChunkSize int
+}
+
+// ResolveStreamConfig converts optional FetchCompletionOptions into a concrete
+// ResolvedStreamConfig, falling back to library defaults as needed.
+func ResolveStreamConfig(opts *spec.FetchCompletionOptions) ResolvedStreamConfig {
+	cfg := ResolvedStreamConfig{
+		FlushInterval:  FlushInterval,
+		FlushChunkSize: FlushChunkSize,
+	}
+	if opts == nil || opts.StreamConfig == nil {
+		return cfg
+	}
+
+	if opts.StreamConfig.FlushIntervalMillis > 0 {
+		cfg.FlushInterval = time.Duration(opts.StreamConfig.FlushIntervalMillis) * time.Millisecond
+	}
+	if opts.StreamConfig.FlushChunkSize > 0 {
+		cfg.FlushChunkSize = opts.StreamConfig.FlushChunkSize
+	}
+	return cfg
 }

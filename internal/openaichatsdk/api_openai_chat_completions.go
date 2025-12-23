@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	openaiSharedConstant "github.com/openai/openai-go/v3/shared/constant"
 
-	"github.com/ppipada/inference-go/internal/debugclient"
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/internal/sdkutil"
 	"github.com/ppipada/inference-go/spec"
 )
@@ -22,26 +21,27 @@ import (
 // OpenAIChatCompletionsAPI struct that implements the CompletionProvider interface.
 type OpenAIChatCompletionsAPI struct {
 	ProviderParam *spec.ProviderParam
-	Debug         bool
-	client        *openai.Client
+
+	debugger spec.CompletionDebugger
+	client   *openai.Client
 }
 
 func NewOpenAIChatCompletionsAPI(
 	pi spec.ProviderParam,
-	debug bool,
+	debugger spec.CompletionDebugger,
 ) (*OpenAIChatCompletionsAPI, error) {
 	if pi.Name == "" || pi.Origin == "" {
 		return nil, errors.New("openai chat completions api LLM: invalid args")
 	}
 	return &OpenAIChatCompletionsAPI{
 		ProviderParam: &pi,
-		Debug:         debug,
+		debugger:      debugger,
 	}, nil
 }
 
 func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 	if !api.IsConfigured(ctx) {
-		slog.Debug(
+		logutil.Debug(
 			string(
 				api.ProviderParam.Name,
 			) + ": No API key given. Not initializing OpenAIChatCompletionsAPI LLM object",
@@ -82,14 +82,15 @@ func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 		)
 	}
 
-	dbgCfg := debugclient.DefaultDebugConfig
-	dbgCfg.LogToSlog = api.Debug
-	httpClient := debugclient.NewDebugHTTPClient(dbgCfg)
-	opts = append(opts, option.WithHTTPClient(httpClient))
+	if api.debugger != nil {
+		if httpClient := api.debugger.HTTPClient(); httpClient != nil {
+			opts = append(opts, option.WithHTTPClient(httpClient))
+		}
+	}
 
 	c := openai.NewClient(opts...)
 	api.client = &c
-	slog.Info(
+	logutil.Info(
 		"openai chat completions api LLM provider initialized",
 		"name",
 		string(api.ProviderParam.Name),
@@ -101,7 +102,7 @@ func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 
 func (api *OpenAIChatCompletionsAPI) DeInitLLM(ctx context.Context) error {
 	api.client = nil
-	slog.Info(
+	logutil.Info(
 		"openai chat completions api LLM: provider de initialized",
 		"name",
 		string(api.ProviderParam.Name),
@@ -137,8 +138,7 @@ func (api *OpenAIChatCompletionsAPI) SetProviderAPIKey(
 func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	ctx context.Context,
 	req *spec.FetchCompletionRequest,
-	onStreamTextData func(textData string) error,
-	onStreamThinkingData func(thinkingData string) error,
+	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
 	if api.client == nil {
 		return nil, errors.New("openai chat completions api LLM: client not initialized")
@@ -204,10 +204,13 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	if req.ModelParam.Timeout > 0 {
 		timeout = time.Duration(req.ModelParam.Timeout) * time.Second
 	}
-	ctx = debugclient.AddDebugResponseToCtx(ctx)
+	if api.debugger != nil {
+		ctx = api.debugger.WrapContext(ctx)
+	}
 
-	if req.ModelParam.Stream && onStreamTextData != nil {
-		return api.doStreaming(ctx, params, onStreamTextData, onStreamThinkingData, timeout, toolChoiceNameMap)
+	useStream := req.ModelParam.Stream && opts != nil && opts.StreamHandler != nil
+	if useStream {
+		return api.doStreaming(ctx, req.ModelParam.Name, params, opts, timeout, toolChoiceNameMap)
 	}
 	return api.doNonStreaming(ctx, params, timeout, toolChoiceNameMap)
 }
@@ -223,7 +226,9 @@ func (api *OpenAIChatCompletionsAPI) doNonStreaming(
 	oaiResp, err := api.client.Chat.Completions.New(ctx, params, option.WithRequestTimeout(timeout))
 
 	isNilResp := oaiResp == nil || len(oaiResp.Choices) == 0
-	sdkutil.AttachDebugResp(ctx, resp, err, isNilResp, oaiResp)
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, oaiResp, err, isNilResp)
+	}
 	resp.Usage = usageFromOpenAIChatCompletion(oaiResp)
 	if err != nil {
 		resp.Error = &spec.Error{Message: err.Error()}
@@ -238,18 +243,35 @@ func (api *OpenAIChatCompletionsAPI) doNonStreaming(
 
 func (api *OpenAIChatCompletionsAPI) doStreaming(
 	ctx context.Context,
+	modelName spec.ModelName,
 	params openai.ChatCompletionNewParams,
-	onStreamTextData, _ func(string) error, // Chat Completions has no thinking stream.
+	opts *spec.FetchCompletionOptions,
 	timeout time.Duration,
 	toolChoiceNameMap map[string]spec.ToolChoice,
 ) (*spec.FetchCompletionResponse, error) {
 	resp := &spec.FetchCompletionResponse{}
+	streamCfg := sdkutil.ResolveStreamConfig(opts)
+	// No thinking data available in openai chat completions API, hence no thinking writer.
+	emitText := func(chunk string) error {
+		if strings.TrimSpace(chunk) == "" {
+			return nil
+		}
+		event := spec.StreamEvent{
+			Kind:     spec.StreamContentKindText,
+			Provider: api.ProviderParam.Name,
+			Model:    modelName,
+			Text: &spec.StreamTextChunk{
+				Text: chunk,
+			},
+		}
+		return sdkutil.SafeCallStreamHandler(opts.StreamHandler, event)
+	}
 
 	// No thinking data available in openai chat completions API, hence no thinking writer.
 	writeText, flushText := sdkutil.NewBufferedStreamer(
-		onStreamTextData,
-		sdkutil.FlushInterval,
-		sdkutil.FlushChunkSize,
+		emitText,
+		streamCfg.FlushInterval,
+		streamCfg.FlushChunkSize,
 	)
 
 	stream := api.client.Chat.Completions.NewStreaming(
@@ -293,7 +315,10 @@ func (api *OpenAIChatCompletionsAPI) doStreaming(
 	streamErr := errors.Join(stream.Err(), streamWriteErr)
 	isNilResp := len(acc.Choices) == 0
 
-	sdkutil.AttachDebugResp(ctx, resp, streamErr, isNilResp, &acc.ChatCompletion)
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, &acc.ChatCompletion, streamErr, isNilResp)
+	}
+
 	resp.Usage = usageFromOpenAIChatCompletion(&acc.ChatCompletion)
 	if streamErr != nil {
 		resp.Error = &spec.Error{Message: streamErr.Error()}
@@ -458,7 +483,7 @@ func contentItemsToOpenAIUserMessageParts(
 			continue
 
 		default:
-			slog.Debug("chat completions: unknown content item kind for input message", "kind", it.Kind)
+			logutil.Debug("chat completions: unknown content item kind for input message", "kind", it.Kind)
 		}
 	}
 

@@ -3,31 +3,120 @@ package inference
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 
 	"github.com/ppipada/inference-go/internal/anthropicsdk"
+	"github.com/ppipada/inference-go/internal/debugclient"
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/internal/openaichatsdk"
 	"github.com/ppipada/inference-go/internal/openairesponsessdk"
 	"github.com/ppipada/inference-go/internal/sdkutil"
 	"github.com/ppipada/inference-go/spec"
 )
 
+// LoggerBuilder returns the slog.Logger to be used by this ProviderSet. The
+// builder is evaluated during NewProviderSetAPI; passing nil or returning nil
+// results in a no-op logger being installed via logutil.SetLogger.
+type LoggerBuilder func() *slog.Logger
+
+// DebugClientBuilder constructs a CompletionDebugger for a given provider. A
+// nil builder or a nil returned debugger disable debugging for that provider.
+type DebugClientBuilder func(p spec.ProviderParam) spec.CompletionDebugger
+
 type ProviderSetAPI struct {
 	mu sync.RWMutex
 
-	providers map[spec.ProviderName]spec.CompletionProvider
-	debug     bool
+	providers          map[spec.ProviderName]spec.CompletionProvider
+	loggerBuilder      LoggerBuilder
+	debugClientBuilder DebugClientBuilder
 }
 
-// NewProviderSetAPI creates a new ProviderSet with the specified default provider.
+// ProviderSetOption configures optional behavior for ProviderSetAPI.
+type ProviderSetOption func(*ProviderSetAPI)
+
+// WithLoggerBuilder installs a process-wide logger for this SDK. The builder
+// is evaluated during NewProviderSetAPI; passing nil results in a no-op logger.
+func WithLoggerBuilder(builder LoggerBuilder) ProviderSetOption {
+	return func(ps *ProviderSetAPI) {
+		ps.loggerBuilder = builder
+	}
+}
+
+// WithDebugClientBuilder configures a CompletionDebugger factory. The builder
+// is invoked once per provider when it is added. Returning nil disables
+// debugging for that provider.
+func WithDebugClientBuilder(builder DebugClientBuilder) ProviderSetOption {
+	return func(ps *ProviderSetAPI) {
+		ps.debugClientBuilder = builder
+	}
+}
+
+// DebugOptions provides a high-level way to configure the built-in HTTP
+// debugger based on internal/debugclient. This is a convenience on top of
+// WithDebugClientBuilder; callers that need full control can provide their
+// own builder instead.
+type DebugOptions struct {
+	Enabled             bool
+	CaptureRequestBody  bool
+	CaptureResponseBody bool
+	StripContent        bool
+	LogToLogger         bool
+}
+
+// WithHTTPDebugOptions installs a DebugClientBuilder that uses the internal
+// HTTP debugger with the provided options.
+func WithHTTPDebugOptions(opts DebugOptions) ProviderSetOption {
+	return func(ps *ProviderSetAPI) {
+		if !opts.Enabled {
+			ps.debugClientBuilder = nil
+			return
+		}
+		cfg := debugclient.DefaultDebugConfig
+		cfg.Enabled = true
+		if opts.CaptureRequestBody {
+			cfg.CaptureRequestBody = true
+		}
+		if opts.CaptureResponseBody {
+			cfg.CaptureResponseBody = true
+		}
+		if opts.StripContent {
+			cfg.StripContent = true
+		}
+		if opts.LogToLogger {
+			cfg.LogToSlog = true
+		}
+
+		ps.debugClientBuilder = func(p spec.ProviderParam) spec.CompletionDebugger {
+			return debugclient.NewHTTPCompletionDebugger(cfg)
+		}
+	}
+}
+
+// NewProviderSetAPI creates a new ProviderSet and installs the process-wide
+// logger used by this SDK. The logger is chosen via WithLoggerBuilder; if no
+// builder is provided or it returns nil, a no-op logger is used.
 func NewProviderSetAPI(
-	debug bool,
+	opts ...ProviderSetOption,
 ) (*ProviderSetAPI, error) {
-	return &ProviderSetAPI{
+	ps := &ProviderSetAPI{
 		providers: map[spec.ProviderName]spec.CompletionProvider{},
-		debug:     debug,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		if opt != nil {
+			opt(ps)
+		}
+	}
+
+	if ps.loggerBuilder != nil {
+		logutil.SetDefault(ps.loggerBuilder())
+	} else {
+		logutil.SetDefault(nil)
+	}
+
+	return ps, nil
 }
 
 type AddProviderConfig struct {
@@ -70,13 +159,19 @@ func (ps *ProviderSetAPI) AddProvider(
 		DefaultHeaders:           config.DefaultHeaders,
 	}
 
-	cp, err := getProviderAPI(providerInfo, ps.debug)
+	var dbg spec.CompletionDebugger
+	if ps.debugClientBuilder != nil {
+		dbg = ps.debugClientBuilder(providerInfo)
+	}
+
+	cp, err := getProviderAPI(providerInfo, dbg)
 	if err != nil {
 		return nil, err
 	}
 	ps.providers[provider] = cp
 
-	slog.Info("add provider", "name", provider)
+	logutil.Info("add provider", "name", provider)
+
 	return cp.GetProviderInfo(ctx), nil
 }
 
@@ -98,7 +193,8 @@ func (ps *ProviderSetAPI) DeleteProvider(
 
 	// Best-effort cleanup outside the lock.
 	_ = p.DeInitLLM(ctx)
-	slog.Info("deleteProvider", "name", provider)
+	logutil.Info("deleteProvider", "name", provider)
+
 	return nil
 }
 
@@ -148,8 +244,7 @@ func (ps *ProviderSetAPI) FetchCompletion(
 	ctx context.Context,
 	provider spec.ProviderName,
 	fetchCompletionRequest *spec.FetchCompletionRequest,
-	onStreamTextData func(textData string) error,
-	onStreamThinkingData func(thinkingData string) error,
+	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
 	if provider == "" || fetchCompletionRequest == nil || len(fetchCompletionRequest.Inputs) == 0 ||
 		fetchCompletionRequest.ModelParam.Name == "" {
@@ -177,11 +272,11 @@ func (ps *ProviderSetAPI) FetchCompletion(
 	resp, err := p.FetchCompletion(
 		ctx,
 		&reqCopy,
-		onStreamTextData,
-		onStreamThinkingData,
+		opts,
 	)
 	if err != nil {
-		return nil, errors.Join(err, errors.New("error in fetch completion"))
+		// Return any partial response we got alongside a contextual error.
+		return resp, fmt.Errorf("fetch completion failed for provider %s: %w", provider, err)
 	}
 
 	return resp, nil
@@ -196,16 +291,16 @@ func isProviderSDKTypeSupported(t spec.ProviderSDKType) bool {
 	return false
 }
 
-func getProviderAPI(p spec.ProviderParam, debug bool) (spec.CompletionProvider, error) {
+func getProviderAPI(p spec.ProviderParam, dbg spec.CompletionDebugger) (spec.CompletionProvider, error) {
 	switch p.SDKType {
 	case spec.ProviderSDKTypeAnthropic:
-		return anthropicsdk.NewAnthropicMessagesAPI(p, debug)
+		return anthropicsdk.NewAnthropicMessagesAPI(p, dbg)
 
 	case spec.ProviderSDKTypeOpenAIChatCompletions:
-		return openaichatsdk.NewOpenAIChatCompletionsAPI(p, debug)
+		return openaichatsdk.NewOpenAIChatCompletionsAPI(p, dbg)
 
 	case spec.ProviderSDKTypeOpenAIResponses:
-		return openairesponsessdk.NewOpenAIResponsesAPI(p, debug)
+		return openairesponsessdk.NewOpenAIResponsesAPI(p, dbg)
 	}
 
 	return nil, errors.New("invalid provider api type")

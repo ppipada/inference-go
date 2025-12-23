@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"sync"
+
+	"github.com/ppipada/inference-go/internal/logutil"
 )
 
 type loggingReadCloser struct {
@@ -67,7 +68,7 @@ func (lc *loggingReadCloser) finalize() {
 	lc.debugResp.ResponseDetails.Data = sanitizeBodyForDebug(dataBytes, false, lc.cfg)
 
 	if lc.cfg.LogToSlog {
-		slog.Debug("http_debug: response body raw", "body", string(dataBytes))
+		logutil.Debug("http_debug: response body raw", "body", string(dataBytes))
 	}
 }
 

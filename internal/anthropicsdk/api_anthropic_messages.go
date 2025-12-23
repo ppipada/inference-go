@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"maps"
 	"strings"
 	"time"
@@ -13,7 +12,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	anthropicSharedConstant "github.com/anthropics/anthropic-sdk-go/shared/constant"
 
-	"github.com/ppipada/inference-go/internal/debugclient"
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/internal/sdkutil"
 	"github.com/ppipada/inference-go/spec"
 )
@@ -21,27 +20,28 @@ import (
 // AnthropicMessagesAPI implements CompletionProvider for Anthropics' Messages API.
 type AnthropicMessagesAPI struct {
 	ProviderParam *spec.ProviderParam
-	Debug         bool
-	client        *anthropic.Client
+	debugger      spec.CompletionDebugger
+
+	client *anthropic.Client
 }
 
 // NewAnthropicMessagesAPI creates a new instance of Anthropics provider.
 func NewAnthropicMessagesAPI(
 	pi spec.ProviderParam,
-	debug bool,
+	debugger spec.CompletionDebugger,
 ) (*AnthropicMessagesAPI, error) {
 	if pi.Name == "" || pi.Origin == "" {
 		return nil, errors.New("anthropic messages api LLM: invalid args")
 	}
 	return &AnthropicMessagesAPI{
 		ProviderParam: &pi,
-		Debug:         debug,
+		debugger:      debugger,
 	}, nil
 }
 
 func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
 	if !api.IsConfigured(ctx) {
-		slog.Debug(
+		logutil.Debug(
 			string(
 				api.ProviderParam.Name,
 			) + ": No API key given. Not initializing Anthropics client",
@@ -88,14 +88,15 @@ func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
 		)
 	}
 
-	dbgCfg := debugclient.DefaultDebugConfig
-	dbgCfg.LogToSlog = api.Debug
-	httpClient := debugclient.NewDebugHTTPClient(dbgCfg)
-	opts = append(opts, option.WithHTTPClient(httpClient))
+	if api.debugger != nil {
+		if httpClient := api.debugger.HTTPClient(); httpClient != nil {
+			opts = append(opts, option.WithHTTPClient(httpClient))
+		}
+	}
 
 	c := anthropic.NewClient(opts...)
 	api.client = &c
-	slog.Info(
+	logutil.Info(
 		"anthropic messages api LLM provider initialized",
 		"name", string(api.ProviderParam.Name),
 		"URL", providerURL,
@@ -105,7 +106,7 @@ func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
 
 func (api *AnthropicMessagesAPI) DeInitLLM(ctx context.Context) error {
 	api.client = nil
-	slog.Info(
+	logutil.Info(
 		"anthropic messages api LLM: provider de initialized",
 		"name",
 		string(api.ProviderParam.Name),
@@ -135,8 +136,7 @@ func (api *AnthropicMessagesAPI) SetProviderAPIKey(ctx context.Context, apiKey s
 func (api *AnthropicMessagesAPI) FetchCompletion(
 	ctx context.Context,
 	req *spec.FetchCompletionRequest,
-	onStreamTextData func(textData string) error,
-	onStreamThinkingData func(thinkingData string) error,
+	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
 	if api.client == nil {
 		return nil, errors.New("anthropic messages api LLM: client not initialized")
@@ -217,11 +217,15 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 		}
 	}
 
-	ctx = debugclient.AddDebugResponseToCtx(ctx)
-
-	if req.ModelParam.Stream && onStreamTextData != nil && onStreamThinkingData != nil {
-		return api.doStreaming(ctx, params, onStreamTextData, onStreamThinkingData, timeout, toolChoiceNameMap)
+	if api.debugger != nil {
+		ctx = api.debugger.WrapContext(ctx)
 	}
+
+	useStream := req.ModelParam.Stream && opts != nil && opts.StreamHandler != nil
+	if useStream {
+		return api.doStreaming(ctx, req.ModelParam.Name, params, opts, timeout, toolChoiceNameMap)
+	}
+
 	return api.doNonStreaming(ctx, params, timeout, toolChoiceNameMap)
 }
 
@@ -235,7 +239,9 @@ func (api *AnthropicMessagesAPI) doNonStreaming(
 
 	msg, err := api.client.Messages.New(ctx, params, option.WithRequestTimeout(timeout))
 	isNilResp := msg == nil || len(msg.Content) == 0
-	sdkutil.AttachDebugResp(ctx, resp, err, isNilResp, msg)
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, msg, err, isNilResp)
+	}
 	resp.Usage = usageFromAnthropicMessage(msg)
 	if err != nil {
 		resp.Error = &spec.Error{Message: err.Error()}
@@ -250,21 +256,52 @@ func (api *AnthropicMessagesAPI) doNonStreaming(
 
 func (api *AnthropicMessagesAPI) doStreaming(
 	ctx context.Context,
+	modelName spec.ModelName,
 	params anthropic.MessageNewParams,
-	onStreamTextData, onStreamThinkingData func(string) error,
+	opts *spec.FetchCompletionOptions,
 	timeout time.Duration,
 	toolChoiceNameMap map[string]spec.ToolChoice,
 ) (*spec.FetchCompletionResponse, error) {
 	resp := &spec.FetchCompletionResponse{}
+	streamCfg := sdkutil.ResolveStreamConfig(opts)
+
+	emitText := func(chunk string) error {
+		if strings.TrimSpace(chunk) == "" {
+			return nil
+		}
+		event := spec.StreamEvent{
+			Kind:     spec.StreamContentKindText,
+			Provider: api.ProviderParam.Name,
+			Model:    modelName,
+			Text: &spec.StreamTextChunk{
+				Text: chunk,
+			},
+		}
+		return sdkutil.SafeCallStreamHandler(opts.StreamHandler, event)
+	}
+
+	emitThinking := func(chunk string) error {
+		if strings.TrimSpace(chunk) == "" {
+			return nil
+		}
+		event := spec.StreamEvent{
+			Kind:     spec.StreamContentKindThinking,
+			Provider: api.ProviderParam.Name,
+			Model:    modelName,
+			Thinking: &spec.StreamThinkingChunk{Text: chunk},
+		}
+		return sdkutil.SafeCallStreamHandler(opts.StreamHandler, event)
+	}
+
 	writeTextData, flushTextData := sdkutil.NewBufferedStreamer(
-		onStreamTextData,
-		sdkutil.FlushInterval,
-		sdkutil.FlushChunkSize,
+		emitText,
+		streamCfg.FlushInterval,
+		streamCfg.FlushChunkSize,
 	)
 	writeThinkingData, flushThinkingData := sdkutil.NewBufferedStreamer(
-		onStreamThinkingData,
-		sdkutil.FlushInterval,
-		sdkutil.FlushChunkSize,
+		emitThinking,
+		streamCfg.FlushInterval,
+		streamCfg.FlushChunkSize,
 	)
 
 	stream := api.client.Messages.NewStreaming(
@@ -326,7 +363,9 @@ func (api *AnthropicMessagesAPI) doStreaming(
 
 	streamErr := errors.Join(stream.Err(), streamAccumulateErr, streamWriteErr)
 	isNilResp := len(respFull.Content) == 0
-	sdkutil.AttachDebugResp(ctx, resp, streamErr, isNilResp, &respFull)
+	if api.debugger != nil {
+		resp.DebugDetails = api.debugger.BuildDebugDetails(ctx, &respFull, streamErr, isNilResp)
+	}
 	resp.Usage = usageFromAnthropicMessage(&respFull)
 	if streamErr != nil {
 		resp.Error = &spec.Error{Message: streamErr.Error()}
@@ -520,7 +559,7 @@ func contentItemsToAnthropicContentBlocks(
 			continue
 
 		default:
-			slog.Debug("anthropic: unknown content item kind for message", "kind", it.Kind)
+			logutil.Debug("anthropic: unknown content item kind for message", "kind", it.Kind)
 		}
 	}
 	if len(out) == 0 {
@@ -666,7 +705,7 @@ func contentItemsToAnthropicToolResultBlocks(
 		case spec.ContentItemKindRefusal:
 			// Invalid for this.
 		default:
-			slog.Debug("anthropic: unknown content item kind for message", "kind", it.Kind)
+			logutil.Debug("anthropic: unknown content item kind for message", "kind", it.Kind)
 		}
 	}
 	if len(out) == 0 {
@@ -836,7 +875,7 @@ func contentItemFileToAnthropicDocumentBlockParam(fileItem *spec.ContentItemFile
 	case data != "" && strings.HasPrefix(mime, "text/"):
 		// For plain text, Anthropic expects actual text, not base64. If you
 		// want to support this fully, decode base64 here. For now we skip.
-		slog.Debug("anthropic: skipping non-pdf base64 file; plain-text decoding not implemented",
+		logutil.Debug("anthropic: skipping non-pdf base64 file; plain-text decoding not implemented",
 			"id", fileItem.ID, "name", fileItem.FileName, "mime", mime)
 	default:
 		// Other file types not supported as document blocks.
@@ -926,7 +965,7 @@ func toolChoicesToAnthropicTools(
 			wsTool := anthropic.WebSearchTool20250305Param{}
 
 			if len(ws.AllowedDomains) > 0 && len(ws.BlockedDomains) > 0 {
-				slog.Warn(
+				logutil.Warn(
 					"anthropic: web_search tool has both allowed_domains and blocked_domains; using allowed_domains only",
 					"toolID",
 					tc.ID,
