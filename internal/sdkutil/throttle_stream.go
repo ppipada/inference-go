@@ -19,6 +19,12 @@ func NewBufferedStreamer(
 	flushInterval time.Duration,
 	maxSize int,
 ) (write func(string) error, flush func()) {
+	if flushInterval <= 0 {
+		flushInterval = FlushInterval
+	}
+	if maxSize <= 0 {
+		maxSize = FlushChunkSize
+	}
 	var mu sync.Mutex
 	var buf strings.Builder
 	ticker := time.NewTicker(flushInterval)

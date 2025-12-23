@@ -2,12 +2,14 @@ package sdkutil
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"strings"
 
 	"github.com/ppipada/inference-go/internal/debugclient"
-	"github.com/ppipada/inference-go/internal/maputil"
 	"github.com/ppipada/inference-go/spec"
 )
 
@@ -50,12 +52,12 @@ func AttachDebugResp(
 	// Always attach request/response debug info from the HTTP layer if available.
 	if debugResp != nil {
 		if debugResp.RequestDetails != nil {
-			if d, err := maputil.StructWithJSONTagsToMap(debugResp.RequestDetails); err == nil {
+			if d, err := structWithJSONTagsToMap(debugResp.RequestDetails); err == nil {
 				debugDetails["requestDetails"] = d
 			}
 		}
 		if debugResp.ResponseDetails != nil {
-			if d, err := maputil.StructWithJSONTagsToMap(debugResp.ResponseDetails); err == nil {
+			if d, err := structWithJSONTagsToMap(debugResp.ResponseDetails); err == nil {
 				debugDetails["responseDetails"] = d
 			}
 		}
@@ -67,7 +69,7 @@ func AttachDebugResp(
 
 	if fullObj != nil {
 		// We got a object. Lets replace always.
-		if m, err := maputil.StructWithJSONTagsToMap(fullObj); err == nil {
+		if m, err := structWithJSONTagsToMap(fullObj); err == nil {
 			if d, ok := debugDetails["responseDetails"].(map[string]any); ok {
 				d["data"] = debugclient.ScrubAnyForDebug(m, true)
 			}
@@ -99,7 +101,7 @@ func AttachDebugResp(
 		ed := *debugResp.ErrorDetails
 		ed.Message = strings.Join(msgParts, "; ")
 
-		if d, err := maputil.StructWithJSONTagsToMap(ed); err == nil {
+		if d, err := structWithJSONTagsToMap(ed); err == nil {
 			debugDetails["errorDetails"] = d
 		}
 
@@ -108,4 +110,23 @@ func AttachDebugResp(
 			d["message"] = strings.Join(msgParts, "; ")
 		}
 	}
+}
+
+func structWithJSONTagsToMap(data any) (map[string]any, error) {
+	if data == nil {
+		return nil, errors.New("input data cannot be nil")
+	}
+	// Marshal the struct to JSON.
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal struct to JSON: %w", err)
+	}
+
+	// Unmarshal the JSON into a map.
+	var result map[string]any
+	if err := json.Unmarshal(jsonData, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+	}
+
+	return result, nil
 }

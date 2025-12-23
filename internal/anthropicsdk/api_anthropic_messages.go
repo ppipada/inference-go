@@ -310,6 +310,10 @@ func (api *AnthropicMessagesAPI) doStreaming(
 		default:
 			// No valid variant.
 		}
+		// If downstream write failed (client disconnect, etc.), stop consuming the stream.
+		if streamWriteErr != nil {
+			break
+		}
 	}
 
 	if flushTextData != nil {

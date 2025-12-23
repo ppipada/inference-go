@@ -9,6 +9,7 @@ import (
 	"github.com/ppipada/inference-go/internal/anthropicsdk"
 	"github.com/ppipada/inference-go/internal/openaichatsdk"
 	"github.com/ppipada/inference-go/internal/openairesponsessdk"
+	"github.com/ppipada/inference-go/internal/sdkutil"
 	"github.com/ppipada/inference-go/spec"
 )
 
@@ -163,9 +164,19 @@ func (ps *ProviderSetAPI) FetchCompletion(
 		return nil, errors.New("invalid provider")
 	}
 
+	reqCopy := *fetchCompletionRequest
+
+	// If a max prompt length (in tokens) is configured, apply heuristic filtering.
+	if reqCopy.ModelParam.MaxPromptLength > 0 {
+		reqCopy.Inputs = sdkutil.FilterMessagesByTokenCount(
+			fetchCompletionRequest.Inputs,
+			reqCopy.ModelParam.MaxPromptLength,
+		)
+	}
+
 	resp, err := p.FetchCompletion(
 		ctx,
-		fetchCompletionRequest,
+		&reqCopy,
 		onStreamTextData,
 		onStreamThinkingData,
 	)

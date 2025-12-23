@@ -2,6 +2,7 @@ package debugclient
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -25,7 +26,6 @@ var sensitiveKeys = []string{
 	"apikey",
 	"api_key",
 	"x-api-key",
-	"key",
 }
 
 // scrubPlainText applies minimal redaction to a non-JSON body.
@@ -252,10 +252,16 @@ func redactHeaders(headers map[string]any) map[string]any {
 // containsSensitiveKey checks if a key contains any sensitive keywords.
 func containsSensitiveKey(key string) bool {
 	lk := strings.ToLower(key)
-	for _, sensitiveKey := range sensitiveKeys {
-		if strings.Contains(lk, sensitiveKey) {
-			return true
-		}
+
+	// Exact matches for common secret-bearing fields.
+	if slices.Contains(sensitiveKeys, lk) {
+		return true
 	}
+
+	// Heuristic: names ending with "_key" or "-key" are often API keys.
+	if strings.HasSuffix(lk, "_key") || strings.HasSuffix(lk, "-key") {
+		return true
+	}
+
 	return false
 }
