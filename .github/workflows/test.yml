@@ -32,7 +32,7 @@ jobs:
 
       - name: test
         run: |
-          go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./...
+          go test -covermode=atomic -coverpkg=./... -coverprofile=coverage.out -tags=integration ./...
           go tool cover -func=coverage.out
 
       - name: check test coverage
