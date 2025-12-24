@@ -124,8 +124,8 @@ type APIErrorDetails struct {
 	Response *APIResponseDetails `json:"responseDetails,omitempty"`
 }
 
-// httpDebugState wraps HTTP debug info stored on the context.
-type httpDebugState struct {
+// HTTPDebugState wraps HTTP debug info stored on the context.
+type HTTPDebugState struct {
 	RequestDetails  *APIRequestDetails  `json:"requestDetails"`
 	ResponseDetails *APIResponseDetails `json:"responseDetails"`
 	ErrorDetails    *APIErrorDetails    `json:"errorDetails"`

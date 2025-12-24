@@ -3,7 +3,6 @@ package debugclient
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 )
 
@@ -266,36 +265,4 @@ func (s *scrubber) scrub(v any, depth int, ctx scrubContext) any {
 	default:
 		return vv
 	}
-}
-
-func redactHeaders(headers map[string]any) map[string]any {
-	if headers == nil {
-		return nil
-	}
-	out := make(map[string]any, len(headers))
-	for k, v := range headers {
-		if containsSensitiveKey(k) {
-			out[k] = maskToken
-		} else {
-			out[k] = v
-		}
-	}
-	return out
-}
-
-// containsSensitiveKey checks if a key contains any sensitive keywords.
-func containsSensitiveKey(key string) bool {
-	lk := strings.ToLower(key)
-
-	// Exact matches for common secret-bearing fields.
-	if slices.Contains(sensitiveKeys, lk) {
-		return true
-	}
-
-	// Heuristic: names ending with "_key" or "-key" are often API keys.
-	if strings.HasSuffix(lk, "_key") || strings.HasSuffix(lk, "-key") {
-		return true
-	}
-
-	return false
 }

@@ -4,29 +4,40 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
-
-	"github.com/ppipada/inference-go/internal/logutil"
 )
 
-func DecodeAndPrintJSON(s string) {
-	var obj any
-	err := json.Unmarshal([]byte(s), &obj)
-	if err != nil {
-		logutil.Info("json unmarshal error", "msg", err.Error())
-	} else {
-		PrintJSON(obj)
+func redactHeaders(headers map[string]any) map[string]any {
+	if headers == nil {
+		return nil
 	}
+	out := make(map[string]any, len(headers))
+	for k, v := range headers {
+		if containsSensitiveKey(k) {
+			out[k] = maskToken
+		} else {
+			out[k] = v
+		}
+	}
+	return out
 }
 
-// PrintJSON logs a value as JSON at info level.
-func PrintJSON(v any) {
-	p, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		logutil.Info("json marshal error", "msg", err.Error())
-	} else {
-		logutil.Info("request params", "json", string(p))
+// containsSensitiveKey checks if a key contains any sensitive keywords.
+func containsSensitiveKey(key string) bool {
+	lk := strings.ToLower(key)
+
+	// Exact matches for common secret-bearing fields.
+	if slices.Contains(sensitiveKeys, lk) {
+		return true
 	}
+
+	// Heuristic: names ending with "_key" or "-key" are often API keys.
+	if strings.HasSuffix(lk, "_key") || strings.HasSuffix(lk, "-key") {
+		return true
+	}
+
+	return false
 }
 
 // looksLikeBase64 heuristically detects large base64 strings or data URLs.

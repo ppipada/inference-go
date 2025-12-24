@@ -40,7 +40,7 @@ func (t *logTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	state, _ := httpDebugStateFromContext(ctx)
 	if state == nil {
 		// Best-effort container (only visible to logs in this RoundTrip).
-		state = &httpDebugState{}
+		state = &HTTPDebugState{}
 	}
 
 	// Capture request details (including optional body).
@@ -141,7 +141,7 @@ func captureRequestDetails(req *http.Request, cfg DebugConfig) *APIRequestDetail
 func captureResponseDetails(
 	resp *http.Response,
 	cfg DebugConfig,
-	state *httpDebugState,
+	state *HTTPDebugState,
 ) *APIResponseDetails {
 	if resp == nil {
 		return nil
@@ -220,16 +220,16 @@ func generateCurlCommand(config *APIRequestDetails) string {
 	return b.String()
 }
 
-// withHTTPDebugState sets up an httpDebugState container on the context.
+// withHTTPDebugState sets up an HTTPDebugState container on the context.
 // All SDK calls that should capture HTTP debug must use this context.
 func withHTTPDebugState(ctx context.Context) context.Context {
-	state := &httpDebugState{}
+	state := &HTTPDebugState{}
 	return context.WithValue(ctx, ctxKeyHTTPDebugState, state)
 }
 
-// httpDebugStateFromContext retrieves the httpDebugState from context.
-func httpDebugStateFromContext(ctx context.Context) (*httpDebugState, bool) {
-	state, ok := ctx.Value(ctxKeyHTTPDebugState).(*httpDebugState)
+// httpDebugStateFromContext retrieves the HTTPDebugState from context.
+func httpDebugStateFromContext(ctx context.Context) (*HTTPDebugState, bool) {
+	state, ok := ctx.Value(ctxKeyHTTPDebugState).(*HTTPDebugState)
 	return state, ok
 }
 

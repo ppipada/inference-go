@@ -12,7 +12,7 @@ type loggingReadCloser struct {
 	io.ReadCloser
 
 	buf   *bytes.Buffer
-	state *httpDebugState
+	state *HTTPDebugState
 	cfg   DebugConfig
 
 	mu        sync.Mutex
