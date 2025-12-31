@@ -155,11 +155,13 @@ func (api *OpenAIResponsesAPI) FetchCompletion(
 	}
 
 	params := responses.ResponseNewParams{
-		Model:           shared.ChatModel(req.ModelParam.Name),
-		MaxOutputTokens: openai.Int(int64(req.ModelParam.MaxOutputLength)),
-		Input:           responses.ResponseNewParamsInputUnion{OfInputItemList: inputItems},
-		Store:           openai.Bool(false),
-		Include:         []responses.ResponseIncludable{"reasoning.encrypted_content"},
+		Model:   shared.ChatModel(req.ModelParam.Name),
+		Input:   responses.ResponseNewParamsInputUnion{OfInputItemList: inputItems},
+		Store:   openai.Bool(false),
+		Include: []responses.ResponseIncludable{"reasoning.encrypted_content"},
+	}
+	if req.ModelParam.MaxOutputLength > 0 {
+		params.MaxOutputTokens = openai.Int(int64(req.ModelParam.MaxOutputLength))
 	}
 
 	// Top‑level instructions.

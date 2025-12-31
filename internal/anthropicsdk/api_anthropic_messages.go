@@ -156,9 +156,13 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 	}
 
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(req.ModelParam.Name),
-		MaxTokens: int64(req.ModelParam.MaxOutputLength),
-		Messages:  msgs,
+		Model:    anthropic.Model(req.ModelParam.Name),
+		Messages: msgs,
+	}
+	if req.ModelParam.MaxOutputLength > 0 {
+		params.MaxTokens = int64(req.ModelParam.MaxOutputLength)
+	} else {
+		params.MaxTokens = int64(8192)
 	}
 	if len(sysParams) > 0 {
 		params.System = sysParams

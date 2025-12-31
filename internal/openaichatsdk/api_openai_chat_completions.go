@@ -160,9 +160,11 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	}
 
 	params := openai.ChatCompletionNewParams{
-		Model:               shared.ChatModel(req.ModelParam.Name),
-		MaxCompletionTokens: openai.Int(int64(req.ModelParam.MaxOutputLength)),
-		Messages:            msgs,
+		Model:    shared.ChatModel(req.ModelParam.Name),
+		Messages: msgs,
+	}
+	if req.ModelParam.MaxOutputLength > 0 {
+		params.MaxCompletionTokens = openai.Int(int64(req.ModelParam.MaxOutputLength))
 	}
 	if t := req.ModelParam.Temperature; t != nil {
 		params.Temperature = openai.Float(*t)
