@@ -154,6 +154,8 @@ func (api *OpenAIResponsesAPI) FetchCompletion(
 		return nil, err
 	}
 
+	// logutil.LogJSON(inputItems)
+
 	params := responses.ResponseNewParams{
 		Model:   shared.ChatModel(req.ModelParam.Name),
 		Input:   responses.ResponseNewParamsInputUnion{OfInputItemList: inputItems},
@@ -453,11 +455,17 @@ func toOpenAIResponsesInput(
 			if len(items) == 0 {
 				continue
 			}
-			status := responses.ResponseOutputMessageStatusCompleted
-			if in.OutputMessage.Status == fromOpenAIStatus(string(responses.ResponseOutputMessageStatusIncomplete)) {
+
+			var status responses.ResponseOutputMessageStatus
+
+			switch in.OutputMessage.Status {
+			case fromOpenAIStatus(string(responses.ResponseOutputMessageStatusCompleted)):
+				status = responses.ResponseOutputMessageStatusCompleted
+			case fromOpenAIStatus(string(responses.ResponseOutputMessageStatusIncomplete)):
 				status = responses.ResponseOutputMessageStatusIncomplete
-			} else if in.OutputMessage.Status == fromOpenAIStatus(string(responses.ResponseOutputMessageStatusInProgress)) {
+			case fromOpenAIStatus(string(responses.ResponseOutputMessageStatusInProgress)):
 				status = responses.ResponseOutputMessageStatusInProgress
+			default:
 			}
 
 			out = append(out, responses.ResponseInputItemUnionParam{
@@ -684,12 +692,19 @@ func reasoningContentToOpenAIItem(
 		return nil
 	}
 
-	status := responses.ResponseReasoningItemStatusCompleted
-	if r.Status == fromOpenAIStatus(string(responses.ResponseReasoningItemStatusIncomplete)) {
+	var status responses.ResponseReasoningItemStatus
+
+	switch r.Status {
+	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusCompleted)):
+		status = responses.ResponseReasoningItemStatusCompleted
+	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusIncomplete)):
 		status = responses.ResponseReasoningItemStatusIncomplete
-	} else if r.Status == fromOpenAIStatus(string(responses.ResponseReasoningItemStatusInProgress)) {
+	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusInProgress)):
 		status = responses.ResponseReasoningItemStatusInProgress
+	default:
+
 	}
+
 	item := &responses.ResponseReasoningItemParam{
 		ID:     r.ID,
 		Status: status,
@@ -744,11 +759,15 @@ func toolCallToOpenAIItem(call *spec.ToolCall) *responses.ResponseInputItemUnion
 	}
 	switch call.Type {
 	case spec.ToolTypeFunction:
-		status := responses.ResponseFunctionToolCallStatusCompleted
-		if call.Status == fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusIncomplete)) {
+		var status responses.ResponseFunctionToolCallStatus
+		switch call.Status {
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusCompleted)):
+			status = responses.ResponseFunctionToolCallStatusCompleted
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusIncomplete)):
 			status = responses.ResponseFunctionToolCallStatusIncomplete
-		} else if call.Status == fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusInProgress)) {
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusInProgress)):
 			status = responses.ResponseFunctionToolCallStatusInProgress
+		default:
 		}
 
 		fc := responses.ResponseFunctionToolCallParam{
@@ -792,6 +811,8 @@ func webSearchToolCallToOpenAIResponses(
 	var status responses.ResponseFunctionWebSearchStatus
 
 	switch toolCall.Status {
+	case fromOpenAIStatus(string(responses.ResponseFunctionWebSearchStatusCompleted)):
+		status = responses.ResponseFunctionWebSearchStatusCompleted
 	case fromOpenAIStatus(string(responses.ResponseFunctionWebSearchStatusInProgress)):
 		status = responses.ResponseFunctionWebSearchStatusInProgress
 	case fromOpenAIStatus(string(responses.ResponseFunctionWebSearchStatusFailed)):
@@ -799,7 +820,6 @@ func webSearchToolCallToOpenAIResponses(
 	case fromOpenAIStatus(string(responses.ResponseFunctionWebSearchStatusSearching)):
 		status = responses.ResponseFunctionWebSearchStatusSearching
 	default:
-		status = responses.ResponseFunctionWebSearchStatusCompleted
 	}
 
 	out := &responses.ResponseInputItemUnionParam{
@@ -870,12 +890,17 @@ func toolOutputToOpenAIResponses(
 	}
 	switch toolOutput.Type {
 	case spec.ToolTypeFunction:
-		status := responses.ResponseFunctionToolCallStatusCompleted
-		if toolOutput.Status == fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusIncomplete)) {
+		var status responses.ResponseFunctionToolCallStatus
+		switch toolOutput.Status {
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusCompleted)):
+			status = responses.ResponseFunctionToolCallStatusCompleted
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusIncomplete)):
 			status = responses.ResponseFunctionToolCallStatusIncomplete
-		} else if toolOutput.Status == fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusInProgress)) {
+		case fromOpenAIStatus(string(responses.ResponseFunctionToolCallStatusInProgress)):
 			status = responses.ResponseFunctionToolCallStatusInProgress
+		default:
 		}
+
 		items, err := contentItemsToOpenAIFunctionCallOutputContent(toolOutput.Contents)
 		if err != nil {
 			return nil
@@ -1149,7 +1174,7 @@ func outputsFromOpenAIResponse(
 			// Treat as a single assistant message.
 			outMsg := spec.InputOutputContent{
 				ID:     m.ID,
-				Role:   spec.RoleAssistant,
+				Role:   spec.RoleEnum(m.Role),
 				Status: fromOpenAIStatus(string(m.Status)),
 			}
 
@@ -1198,12 +1223,13 @@ func outputsFromOpenAIResponse(
 			ri := item.AsReasoning()
 			r := spec.ReasoningContent{
 				ID:     ri.ID,
-				Role:   spec.RoleAssistant,
+				Role:   spec.RoleAssistant, // No input role, but given that this is output, this is assistant message.
 				Status: fromOpenAIStatus(string(ri.Status)),
 			}
 			if ri.EncryptedContent != "" {
 				r.EncryptedContent = []string{ri.EncryptedContent}
 			}
+			r.Summary = make([]string, 0)
 			if len(ri.Summary) > 0 {
 				for _, s := range ri.Summary {
 					if txt := strings.TrimSpace(s.Text); txt != "" {
@@ -1278,8 +1304,8 @@ func outputsFromOpenAIResponse(
 				CallID:    ct.CallID,
 				Name:      ct.Name,
 				Arguments: ct.Input,
-				// No status to custom tool call. Consider completed.
-				Status: spec.StatusCompleted,
+				// No status to custom tool call.
+				Status: spec.StatusNone,
 			}
 
 			outs = append(
