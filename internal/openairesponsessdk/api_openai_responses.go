@@ -714,12 +714,8 @@ func reasoningContentToOpenAIItem(
 		item.EncryptedContent = param.NewOpt(r.EncryptedContent[0])
 	}
 
+	item.Summary = make([]responses.ResponseReasoningItemSummaryParam, 0)
 	if len(r.Summary) > 0 {
-		item.Summary = make(
-			[]responses.ResponseReasoningItemSummaryParam,
-			0,
-			len(r.Summary),
-		)
 		for _, s := range r.Summary {
 			s = strings.TrimSpace(s)
 			if s == "" {
@@ -1229,8 +1225,8 @@ func outputsFromOpenAIResponse(
 			if ri.EncryptedContent != "" {
 				r.EncryptedContent = []string{ri.EncryptedContent}
 			}
-			r.Summary = make([]string, 0)
 			if len(ri.Summary) > 0 {
+				r.Summary = make([]string, 0)
 				for _, s := range ri.Summary {
 					if txt := strings.TrimSpace(s.Text); txt != "" {
 						r.Summary = append(r.Summary, txt)
