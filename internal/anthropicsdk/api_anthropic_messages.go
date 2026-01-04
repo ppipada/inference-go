@@ -172,14 +172,11 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 		switch rp.Type {
 		case spec.ReasoningTypeHybridWithTokens:
 			// Use the explicit token budget, enforcing a minimum if provided.
-			if rp.Tokens > 0 {
-				budget := max(rp.Tokens, 1024)
-				params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(budget))
-			}
-
+			budget := max(rp.Tokens, 1024)
+			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(budget))
 		case spec.ReasoningTypeSingleWithLevels:
 			// Map qualitative levels to a default token budget; ignore rp.Tokens.
-			var budget int
+			var budget int64
 			switch rp.Level {
 			case spec.ReasoningLevelNone:
 				// No reasoning.
@@ -195,12 +192,12 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 				// Unknown level -> leave Thinking unset.
 			}
 			if budget > 0 {
-				params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(budget))
+				params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+			} else if t := req.ModelParam.Temperature; t != nil {
+				params.Temperature = anthropic.Float(*t)
 			}
 		}
-	}
-
-	if t := req.ModelParam.Temperature; t != nil {
+	} else if t := req.ModelParam.Temperature; t != nil {
 		params.Temperature = anthropic.Float(*t)
 	}
 
