@@ -1,10 +1,13 @@
 package sdkutil
 
 import (
+	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ppipada/inference-go/internal/logutil"
 	"github.com/ppipada/inference-go/spec"
 )
 
@@ -99,11 +102,19 @@ func SafeCallStreamHandler(handler spec.StreamHandler, event spec.StreamEvent) (
 		return nil
 	}
 
-	defer Recover("stream handler panic",
-		"kind", event.Kind,
-		"provider", event.Provider,
-		"model", event.Model,
-	)
+	// We use an inline recover here so we can both log and surface an error.
+	defer func() {
+		if r := recover(); r != nil {
+			logutil.Error("stream handler panic",
+				"panic", r,
+				"kind", event.Kind,
+				"provider", event.Provider,
+				"model", event.Model,
+				"stack", string(debug.Stack()),
+			)
+			err = fmt.Errorf("stream handler panic: %v", r)
+		}
+	}()
 
 	return handler(event)
 }
