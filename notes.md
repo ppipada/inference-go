@@ -126,7 +126,7 @@
   - [ ] Deferred/Think through
 
     - [ ] Shell tool: this is a fixed schema for a host driven shell tool implementation. Better to have a much more controlled and safe and tunable in app shell calls and execute tool and flow. arbitrary shell commands in loop can be quite dangerous overall.
-    - [ ] Apply path tool: this is a fixed schema for a host driven patch generation and apply tool. it allows models to generate patches (mostly will be some internal schema conformance thing) and we have to apply them locally.
+    - [ ] Apply patch tool: this is a fixed schema for a host driven patch generation and apply tool. it allows models to generate patches (mostly will be some internal schema conformance thing) and we have to apply them locally.
     - [ ] The utility of these tools is mostly that you dont have to give input schema for this in function calling. This may be useful over host driven similar tools only if there is some cost saving associated with it.
 
   - [ ] Don't
