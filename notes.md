@@ -32,27 +32,16 @@
       - Not sure why this duplication from the top level param is present and when is this supposed to be used vs top level.
   - Thinking, redacted thinking: all supported.
 
-  - Tool use: all supported.
+  - Tool use: all supported including Server tool use of websearch.
   - Tool result:
 
-    - Support: Text, image, document.
+    - Support: Text, image, document, Web search tool result.
     - Don't support: Similar to above, search result block and content block source inside document source is not supported in the result type.
 
-  - Web search tool result:
-
-    - Not supported yet. immediate next.
-
-  - Server tool use: Fully not supported yet. immediate next for whatever is required for web search.
   - SearchResultBlock - Fully not supported in input or output.
     - Need to see where it is useful in stateless flows.
 
 - Tool choice:
-
-  - [ ] Do
-
-    - [ ] Tool choice config
-    - [ ] Function calling
-    - [ ] Web search: integrate sources and citations too, in ui as well.
 
   - [x] Deferred
 
@@ -78,12 +67,9 @@
 
 - Input params
 
-  - Supported: Max ouput tokens, model, stream, temperature, reasoning (support reasoning summary config is pending)
+  - Supported: Max ouput tokens, model, stream, temperature, reasoning (support reasoning summary config is pending), Instructions
   - Not supported:
 
-    - Include options: Immediate next - add support for reasoning encrypted content, web search sources, input image url
-    - Instructions
-      - not sure how this is different from a developer message in input.
     - Tool options: max tool calls, parallel_tool_calls
     - metadata : opaque kv pairs.
     - prompt_cache_key, prompt_cache_retention
@@ -101,10 +87,8 @@
 
 - OutputParams
 
-  - Supported: input/output tokens and cached tokens usage
-
+  - Supported: input/output tokens and cached tokens usage, error
   - Not supported:
-    - error: verify pending.
     - All others are passed as opaque Details.
 
 - Input output content (i.e messages and system prompt):
@@ -120,9 +104,8 @@
 
   - Function call, custom tool call: all supported.
   - Function call output, custom tool call output: All supported except stateful properties (file_id as of now)
-  - Image generation call: Not supported yet. need to analyze what it is.
-  - Web search tool call and result: Not supported yet. immediate next.
-    - given that this is inbuilt tool, the data type should have been a tool output (like in anthropic), but openai calls it a tool call for some reason.
+  - Image generation call: Not supported yet.
+  - Web search tool call and result: all supported.
   - Item reference: Not sure what it is used for. Most probably some stateful thing.
 
   - Not supported:
@@ -133,18 +116,12 @@
 
 - Tool choice:
 
-  - [ ] Do
-
-    - [x] Function calling
-    - [ ] Tool choice config
-    - [ ] Web search: integrate sources and citations too, in ui as well.
-    - [ ] Image generation: integrate image render in UI too.
-
   - [x] Deferred
 
     - [x] File search: it is about using files uplaoded to openai vector stores. may look at it when we do vector stores thing.
     - [x] Remote MCP: decide when to do mcp integrations.
     - [x] Remote Connectors: decide when to do mcp integrations. This is better as it would give concrete access to remote data sources.
+    - [ ] Image generation.
 
   - [x] Deferred/Think through
 
@@ -162,3 +139,8 @@
 
 - Anthropic: Why is server tool use block with websearch input as any??
 - Anthropic: Why have content block source in document source as input?
+- [ ] Image output
+  - [ ] anthropic doesnt support image generation
+  - [ ] openai supports image output via the image generation tool, not as input output content message
+  - [ ] google generate content has image gen as direct input output content but via dedicated models.
+  - [ ] Given that what should be whee is not known, this should be deferred.
