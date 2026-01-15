@@ -17,6 +17,7 @@ A single interface in Go to get inference from multiple LLM / AI providers using
 - [HTTP debugging](#http-debugging)
 - [Notes](#notes)
 - [Development](#development)
+- [License](#license)
 
 ## Features at a glance
 
@@ -202,3 +203,10 @@ ps, _ := inference.NewProviderSetAPI(
   - Keep the public API (`package inference` and `spec`) small and intentional.
   - Avoid leaking provider‑specific types through the public surface; put them under `internal/`.
   - Please run tests and linters before sending a PR.
+
+## License
+
+Copyright (c) 2026 - Present - Pankaj Pipada
+
+All source code in this repository, unless otherwise noted, is licensed under the MIT License.
+See [LICENSE](./LICENSE) for details.
