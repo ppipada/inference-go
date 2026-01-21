@@ -4,8 +4,8 @@ type (
 	ModelName       string
 	ReasoningLevel  string
 	ReasoningType   string
-	ProviderName    string // You can choose whether this is contract or API; safe to include.
-	ProviderSDKType string // Probably not needed for conversation; can be non-contract if you like.
+	ProviderName    string
+	ProviderSDKType string
 )
 
 const (

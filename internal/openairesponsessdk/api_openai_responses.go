@@ -145,10 +145,12 @@ func (api *OpenAIResponsesAPI) FetchCompletion(
 		return nil, errors.New("openai responses api LLM: invalid data")
 	}
 
+	sanitizedInputs := sanitizeReasoningInputs(req.Inputs)
+
 	// Build OpenAI Responses input messages.
 	inputItems, err := toOpenAIResponsesInput(
 		ctx,
-		req.Inputs,
+		sanitizedInputs,
 	)
 	if err != nil {
 		return nil, err
@@ -681,72 +683,6 @@ func citationsToAnnotations(
 		})
 	}
 	return out
-}
-
-// reasoningContentToOpenAIItem converts a generic ReasoningContent to an
-// OpenAI Responses reasoning input item.
-func reasoningContentToOpenAIItem(
-	r *spec.ReasoningContent,
-) *responses.ResponseInputItemUnionParam {
-	if r == nil {
-		return nil
-	}
-
-	var status responses.ResponseReasoningItemStatus
-
-	switch r.Status {
-	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusCompleted)):
-		status = responses.ResponseReasoningItemStatusCompleted
-	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusIncomplete)):
-		status = responses.ResponseReasoningItemStatusIncomplete
-	case fromOpenAIStatus(string(responses.ResponseReasoningItemStatusInProgress)):
-		status = responses.ResponseReasoningItemStatusInProgress
-	default:
-
-	}
-
-	item := &responses.ResponseReasoningItemParam{
-		ID:     r.ID,
-		Status: status,
-	}
-
-	if len(r.EncryptedContent) > 0 {
-		item.EncryptedContent = param.NewOpt(r.EncryptedContent[0])
-	}
-
-	item.Summary = make([]responses.ResponseReasoningItemSummaryParam, 0)
-	if len(r.Summary) > 0 {
-		for _, s := range r.Summary {
-			s = strings.TrimSpace(s)
-			if s == "" {
-				continue
-			}
-			item.Summary = append(item.Summary, responses.ResponseReasoningItemSummaryParam{
-				Text: s,
-			})
-		}
-	}
-
-	if len(r.Thinking) > 0 {
-		item.Content = make(
-			[]responses.ResponseReasoningItemContentParam,
-			0,
-			len(r.Thinking),
-		)
-		for _, t := range r.Thinking {
-			t = strings.TrimSpace(t)
-			if t == "" {
-				continue
-			}
-			item.Content = append(item.Content, responses.ResponseReasoningItemContentParam{
-				Text: t,
-			})
-		}
-	}
-
-	return &responses.ResponseInputItemUnionParam{
-		OfReasoning: item,
-	}
 }
 
 func toolCallToOpenAIItem(call *spec.ToolCall) *responses.ResponseInputItemUnionParam {

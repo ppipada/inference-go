@@ -144,6 +144,8 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 	if req == nil || len(req.Inputs) == 0 || req.ModelParam.Name == "" {
 		return nil, errors.New("anthropic messages api LLM: empty completion data")
 	}
+	// Decide if we must override thinking based on interleaved input history.
+	thinkingAnalysis := analyzeAnthropicThinkingBehavior(req.Inputs)
 
 	// Build Anthropic input messages + system blocks.
 	msgs, sysParams, err := toAnthropicMessagesInput(
@@ -168,38 +170,8 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 		params.System = sysParams
 	}
 
-	if rp := req.ModelParam.Reasoning; rp != nil {
-		switch rp.Type {
-		case spec.ReasoningTypeHybridWithTokens:
-			// Use the explicit token budget, enforcing a minimum if provided.
-			budget := max(rp.Tokens, 1024)
-			params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(budget))
-		case spec.ReasoningTypeSingleWithLevels:
-			// Map qualitative levels to a default token budget; ignore rp.Tokens.
-			var budget int64
-			switch rp.Level {
-			case spec.ReasoningLevelNone:
-				// No reasoning.
-			case spec.ReasoningLevelMinimal, spec.ReasoningLevelLow:
-				budget = 1024
-			case spec.ReasoningLevelMedium:
-				budget = 2048
-			case spec.ReasoningLevelHigh:
-				budget = 8192
-			case spec.ReasoningLevelXHigh:
-				budget = 16384
-			default:
-				// Unknown level -> leave Thinking unset.
-			}
-			if budget > 0 {
-				params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-			} else if t := req.ModelParam.Temperature; t != nil {
-				params.Temperature = anthropic.Float(*t)
-			}
-		}
-	} else if t := req.ModelParam.Temperature; t != nil {
-		params.Temperature = anthropic.Float(*t)
-	}
+	// Apply thinking / temperature in a robust, policy-driven way.
+	applyAnthropicThinkingPolicy(&params, &req.ModelParam, thinkingAnalysis)
 
 	timeout := spec.DefaultAPITimeout
 	if req.ModelParam.Timeout > 0 {

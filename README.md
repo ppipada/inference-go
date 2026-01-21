@@ -23,13 +23,11 @@ A single interface in Go to get inference from multiple LLM / AI providers using
 ## Features at a glance
 
 - Single normalized interface (`ProviderSetAPI`) for multiple providers. Current support:
-
   - Anthropic Messages API. [Official SDK used](https://github.com/anthropics/anthropic-sdk-go)
   - OpenAI Chat Completions API [Official SDK used](https://github.com/openai/openai-go)
   - OpenAI Responses API [Official SDK used](https://github.com/openai/openai-go)
 
 - Normalized data model in `spec/`:
-
   - messages (user / assistant / system / developer),
   - text, images, and files, (no audio/video content types yet),
   - tools (function, custom, built-in tools like web search),
@@ -38,12 +36,10 @@ A single interface in Go to get inference from multiple LLM / AI providers using
   - usage accounting.
 
 - Streaming support:
-
   - Text streaming for all providers that support it.
   - Reasoning / thinking streaming where the provider exposes it (Anthropic, OpenAI Responses).
 
 - Client and Server Tools:
-
   - Client tools are supported via Function Calling.
   - Anthropic server-side web search.
   - OpenAI Responses web search tool.
@@ -102,6 +98,14 @@ Feature support
 | Stateful flows            |         no | Library focuses on stateless calls only.                                                    |
 | Usage data                |        yes | Input/Output/Cached. Anthropic doesn't expose Reasoning tokens usage.                       |
 
+- Behavior for conversational + interleaved reasoning message input
+  - Input: No reasoning content in the incoming messages.
+    - Action: Build the message list unchanged. If the last user message is a `tool_result`, force _thinking disabled_; otherwise, honor the requested thinking setting.
+  - Input: All reasoning messages are signed.
+    - Action: Build the message list unchanged. If the last user message is a `tool_result` _and_ the previous assistant message begins with thinking content, force _thinking enabled_; otherwise, honor the requested thinking setting.
+  - Input: Mix of reasoning messages where some include a valid signature thinking and others do not.
+    - Action: Retain only the reasoning messages with a valid signature; drop the rest. Apply the above behaviors after this cleanup.
+
 ### OpenAI Chat Completions API
 
 Feature support
@@ -142,6 +146,14 @@ Feature support
 | Stateful flows            |         no | Store is explicitly disabled (`Store: false`).                                                                      |
 | Usage data                |        yes | Input/Output/Cached/Reasoning.                                                                                      |
 
+- Behavior for conversational + interleaved reasoning message input
+  - Input: No reasoning messages.
+    - Action: Build the message list unchanged. Honor the requested thinking setting.
+  - Input: All reasoning messages are `encrypted_content`.
+    - Action: Build the message list unchanged. Honor the requested thinking setting.
+  - Input: Mixed reasoning messages: some are signature-based and some are `encrypted_content`.
+    - Action: Keep only the `encrypted_content` reasoning; drop the signature-based reasoning.
+
 ## HTTP debugging
 
 The library exposes a pluggable `CompletionDebugger` interface:
@@ -154,7 +166,6 @@ type CompletionDebugger interface {
 ```
 
 - package `debugclient` includes an implementation that can be readily used as `HTTPCompletionDebugger`:
-
   - wraps the provider SDK’s `*http.Client`,
   - captures and scrubs:
     - URL, method, headers (with secret redaction),
@@ -179,17 +190,14 @@ ps, _ := inference.NewProviderSetAPI(
 ## Notes
 
 - Stateless focus. The design focuses on stateless request/response interactions:
-
   - no conversation IDs,
   - no file IDs,
 
 - Opaque / provider‑specific fields.
-
   - Many provider‑specific fields (error details, service tiers, cache metadata, full raw responses) are only available through the debug payload, not in the normalized `spec` types.
   - Few of the common needed params may be added over time and as needed.
 
 - Token counting - Normalized `Usage` reports what the provider exposes:
-
   - Anthropic: input vs. cached tokens, output tokens.
   - OpenAI: prompt vs. cached tokens, completion tokens, reasoning tokens where available.
 
