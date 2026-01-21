@@ -13,8 +13,8 @@ A single interface in Go to get inference from multiple LLM / AI providers using
 - [Examples](#examples)
 - [Supported providers](#supported-providers)
   - [Anthropic Messages API](#anthropic-messages-api)
-  - [OpenAI Chat Completions API](#openai-chat-completions-api)
   - [OpenAI Responses API](#openai-responses-api)
+  - [OpenAI Chat Completions API](#openai-chat-completions-api)
 - [HTTP debugging](#http-debugging)
 - [Notes](#notes)
 - [Development](#development)
@@ -106,26 +106,6 @@ Feature support
   - Input: Mix of reasoning messages where some include a valid signature thinking and others do not.
     - Action: Retain only the reasoning messages with a valid signature; drop the rest. Apply the above behaviors after this cleanup.
 
-### OpenAI Chat Completions API
-
-Feature support
-
-| Area                      | Supported? | Notes                                                                                                             |
-| ------------------------- | ---------: | ----------------------------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | Single assistant message per completion (first choice).                                                           |
-| Streaming text            |        yes |                                                                                                                   |
-| Reasoning / thinking      |        yes | Reasoning effort config only; no separate reasoning messages in API.                                              |
-| Streaming thinking        |         no | Not exposed by Chat Completions.                                                                                  |
-| Images (input)            |        yes | `imageData` (base64) and `imageURL` are both supported; base64 is sent as a data URL with `detail` low/high/auto. |
-| Files / documents (input) |        yes | `fileData` (base64) only, sent as a data URL; `fileURL` and stateful file IDs are not used by this adapter.       |
-| Audio/Video input/output  |         no |                                                                                                                   |
-| Tools (function/custom)   |        yes | JSON Schema based.                                                                                                |
-| Web search                |        yes | API doesn't expose a tool; mapped via top-level `web_search_options` derived from a `webSearch` ToolChoice.       |
-| Citations                 |        yes | URL citations mapped from annotations.                                                                            |
-| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                      |
-| Stateful flows            |         no | Library focuses on stateless calls only.                                                                          |
-| Usage data                |        yes | Input/Output/Cached/Reasoning.                                                                                    |
-
 ### OpenAI Responses API
 
 Feature support
@@ -153,6 +133,30 @@ Feature support
     - Action: Build the message list unchanged. Honor the requested thinking setting.
   - Input: Mixed reasoning messages: some are signature-based and some are `encrypted_content`.
     - Action: Keep only the `encrypted_content` reasoning; drop the signature-based reasoning.
+
+### OpenAI Chat Completions API
+
+Feature support
+
+| Area                      | Supported? | Notes                                                                                                             |
+| ------------------------- | ---------: | ----------------------------------------------------------------------------------------------------------------- |
+| Text input/output         |        yes | Single assistant message per completion (first choice).                                                           |
+| Streaming text            |        yes |                                                                                                                   |
+| Reasoning / thinking      |        yes | Reasoning effort config only; no separate reasoning messages in API.                                              |
+| Streaming thinking        |         no | Not exposed by Chat Completions.                                                                                  |
+| Images (input)            |        yes | `imageData` (base64) and `imageURL` are both supported; base64 is sent as a data URL with `detail` low/high/auto. |
+| Files / documents (input) |        yes | `fileData` (base64) only, sent as a data URL; `fileURL` and stateful file IDs are not used by this adapter.       |
+| Audio/Video input/output  |         no |                                                                                                                   |
+| Tools (function/custom)   |        yes | JSON Schema based.                                                                                                |
+| Web search                |        yes | API doesn't expose a tool; mapped via top-level `web_search_options` derived from a `webSearch` ToolChoice.       |
+| Citations                 |        yes | URL citations mapped from annotations.                                                                            |
+| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                      |
+| Stateful flows            |         no | Library focuses on stateless calls only.                                                                          |
+| Usage data                |        yes | Input/Output/Cached/Reasoning.                                                                                    |
+
+- Behavior for conversational + interleaved reasoning message input
+  - Reasoning effort config is kept as is.
+  - All reasoning input/output messages are dropped as the api doesn't support it.
 
 ## HTTP debugging
 
