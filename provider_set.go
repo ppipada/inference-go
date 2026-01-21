@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/flexigpt/inference-go/internal/anthropicsdk"
@@ -119,7 +120,7 @@ func (ps *ProviderSetAPI) AddProvider(
 		Origin:                   config.Origin,
 		ChatCompletionPathPrefix: config.ChatCompletionPathPrefix,
 		APIKeyHeaderKey:          config.APIKeyHeaderKey,
-		DefaultHeaders:           config.DefaultHeaders,
+		DefaultHeaders:           sdkutil.CloneStringMap(config.DefaultHeaders),
 	}
 
 	var dbg spec.CompletionDebugger
@@ -180,26 +181,15 @@ func (ps *ProviderSetAPI) SetProviderAPIKey(
 		return errors.New("invalid provider")
 	}
 
+	apiKey = strings.TrimSpace(apiKey)
+	err := p.SetProviderAPIKey(ctx, apiKey)
+	if err != nil {
+		return err
+	}
 	if apiKey == "" {
-		// Clear the stored key as well as de-initialize the client.
-		if info := p.GetProviderInfo(ctx); info != nil {
-			info.APIKey = ""
-		}
 		return p.DeInitLLM(ctx)
-
 	}
-	err := p.SetProviderAPIKey(
-		ctx,
-		apiKey,
-	)
-	if err != nil {
-		return err
-	}
-	err = p.InitLLM(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
+	return p.InitLLM(ctx)
 }
 
 // FetchCompletion processes a completion request for a given provider.

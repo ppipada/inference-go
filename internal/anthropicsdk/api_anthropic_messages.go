@@ -6,6 +6,7 @@ import (
 	"errors"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -21,8 +22,8 @@ import (
 type AnthropicMessagesAPI struct {
 	ProviderParam *spec.ProviderParam
 	debugger      spec.CompletionDebugger
-
-	client *anthropic.Client
+	client        *anthropic.Client
+	mu            sync.RWMutex
 }
 
 // NewAnthropicMessagesAPI creates a new instance of Anthropics provider.
@@ -40,27 +41,36 @@ func NewAnthropicMessagesAPI(
 }
 
 func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
-	if !api.IsConfigured(ctx) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.ProviderParam == nil {
+		api.client = nil
+		return errors.New("anthropic messages api LLM: no ProviderParam found")
+	}
+
+	if strings.TrimSpace(api.ProviderParam.APIKey) == "" {
 		logutil.Debug(
 			string(
 				api.ProviderParam.Name,
 			) + ": No API key given. Not initializing Anthropics client",
 		)
+		api.client = nil
 		return nil
 	}
 
+	pi := *api.ProviderParam // snapshot under lock
 	opts := []option.RequestOption{
 		// Sets x-api-key.
-		option.WithAPIKey(api.ProviderParam.APIKey),
+		option.WithAPIKey(pi.APIKey),
 	}
 
 	providerURL := spec.DefaultAnthropicOrigin
-	if api.ProviderParam.Origin != "" {
-		baseURL := strings.TrimSuffix(api.ProviderParam.Origin, "/")
+	if pi.Origin != "" {
+		baseURL := strings.TrimSuffix(pi.Origin, "/")
 		// Remove 'v1/messages' from pathPrefix if present,
 		// This is because anthropic sdk adds 'v1/messages' internally.
 		pathPrefix := strings.TrimSuffix(
-			api.ProviderParam.ChatCompletionPathPrefix,
+			pi.ChatCompletionPathPrefix,
 			"v1/messages",
 		)
 		providerURL = baseURL + pathPrefix
@@ -68,23 +78,23 @@ func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
 	}
 
 	// Add default headers.
-	for k, v := range api.ProviderParam.DefaultHeaders {
+	for k, v := range pi.DefaultHeaders {
 		opts = append(opts, option.WithHeader(strings.TrimSpace(k), strings.TrimSpace(v)))
 	}
 
 	// If the caller provided a non-standard API key header, attach it.
-	if api.ProviderParam.APIKeyHeaderKey != "" &&
+	if pi.APIKeyHeaderKey != "" &&
 		!strings.EqualFold(
-			api.ProviderParam.APIKeyHeaderKey,
+			pi.APIKeyHeaderKey,
 			spec.DefaultAnthropicAuthorizationHeaderKey,
 		) &&
 		!strings.EqualFold(
-			api.ProviderParam.APIKeyHeaderKey,
+			pi.APIKeyHeaderKey,
 			spec.DefaultAuthorizationHeaderKey,
 		) {
 		opts = append(
 			opts,
-			option.WithHeader(api.ProviderParam.APIKeyHeaderKey, api.ProviderParam.APIKey),
+			option.WithHeader(pi.APIKeyHeaderKey, pi.APIKey),
 		)
 	}
 
@@ -98,38 +108,55 @@ func (api *AnthropicMessagesAPI) InitLLM(ctx context.Context) error {
 	api.client = &c
 	logutil.Info(
 		"anthropic messages api LLM provider initialized",
-		"name", string(api.ProviderParam.Name),
+		"name", string(pi.Name),
 		"URL", providerURL,
 	)
 	return nil
 }
 
 func (api *AnthropicMessagesAPI) DeInitLLM(ctx context.Context) error {
+	api.mu.Lock()
+	var name spec.ProviderName
+	if api.ProviderParam != nil {
+		name = api.ProviderParam.Name
+	}
 	api.client = nil
+	api.mu.Unlock()
 	logutil.Info(
 		"anthropic messages api LLM: provider de initialized",
 		"name",
-		string(api.ProviderParam.Name),
+		string(name),
 	)
 	return nil
 }
 
 func (api *AnthropicMessagesAPI) GetProviderInfo(ctx context.Context) *spec.ProviderParam {
-	return api.ProviderParam
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	if api.ProviderParam == nil {
+		return nil
+	}
+	cp := *api.ProviderParam
+	cp.DefaultHeaders = sdkutil.CloneStringMap(cp.DefaultHeaders)
+	return &cp
 }
 
 func (api *AnthropicMessagesAPI) IsConfigured(ctx context.Context) bool {
-	return api.ProviderParam != nil && api.ProviderParam.APIKey != ""
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.ProviderParam != nil && strings.TrimSpace(api.ProviderParam.APIKey) != ""
 }
 
 func (api *AnthropicMessagesAPI) SetProviderAPIKey(ctx context.Context, apiKey string) error {
-	if apiKey == "" {
-		return errors.New("anthropic messages api LLM: invalid apikey provided")
-	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
 	if api.ProviderParam == nil {
 		return errors.New("anthropic messages api LLM: no ProviderParam found")
 	}
-	api.ProviderParam.APIKey = apiKey
+	// Allow empty to clear.
+	api.ProviderParam.APIKey = strings.TrimSpace(apiKey)
+
 	return nil
 }
 
@@ -138,7 +165,15 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 	req *spec.FetchCompletionRequest,
 	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
-	if api.client == nil {
+	api.mu.RLock()
+	client := api.client
+	var pi spec.ProviderParam
+	if api.ProviderParam != nil {
+		pi = *api.ProviderParam
+	}
+	api.mu.RUnlock()
+
+	if client == nil {
 		return nil, errors.New("anthropic messages api LLM: client not initialized")
 	}
 	if req == nil || len(req.Inputs) == 0 || req.ModelParam.Name == "" {
@@ -193,7 +228,7 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 	var span spec.CompletionSpan
 	if api.debugger != nil {
 		ctx, span = api.debugger.StartSpan(ctx, &spec.CompletionSpanStart{
-			Provider: api.ProviderParam.Name,
+			Provider: pi.Name,
 			Model:    req.ModelParam.Name,
 			Request:  req,
 			Options:  opts,
@@ -209,6 +244,8 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 	if useStream {
 		normalizedResp, fullRawResp, apiErr = api.doStreaming(
 			ctx,
+			client,
+			pi.Name,
 			req.ModelParam.Name,
 			params,
 			opts,
@@ -216,7 +253,7 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 			toolChoiceNameMap,
 		)
 	} else {
-		normalizedResp, fullRawResp, apiErr = api.doNonStreaming(ctx, params, timeout, toolChoiceNameMap)
+		normalizedResp, fullRawResp, apiErr = api.doNonStreaming(ctx, client, params, timeout, toolChoiceNameMap)
 	}
 
 	if span != nil {
@@ -239,13 +276,14 @@ func (api *AnthropicMessagesAPI) FetchCompletion(
 
 func (api *AnthropicMessagesAPI) doNonStreaming(
 	ctx context.Context,
+	client *anthropic.Client,
 	params anthropic.MessageNewParams,
 	timeout time.Duration,
 	toolChoiceNameMap map[string]spec.ToolChoice,
 ) (*spec.FetchCompletionResponse, *anthropic.Message, error) {
 	resp := &spec.FetchCompletionResponse{}
 
-	anthropicMsg, err := api.client.Messages.New(ctx, params, option.WithRequestTimeout(timeout))
+	anthropicMsg, err := client.Messages.New(ctx, params, option.WithRequestTimeout(timeout))
 
 	resp.Usage = usageFromAnthropicMessage(anthropicMsg)
 	if err != nil {
@@ -258,6 +296,8 @@ func (api *AnthropicMessagesAPI) doNonStreaming(
 
 func (api *AnthropicMessagesAPI) doStreaming(
 	ctx context.Context,
+	client *anthropic.Client,
+	providerName spec.ProviderName,
 	modelName spec.ModelName,
 	params anthropic.MessageNewParams,
 	opts *spec.FetchCompletionOptions,
@@ -273,7 +313,7 @@ func (api *AnthropicMessagesAPI) doStreaming(
 		}
 		event := spec.StreamEvent{
 			Kind:     spec.StreamContentKindText,
-			Provider: api.ProviderParam.Name,
+			Provider: providerName,
 			Model:    modelName,
 			Text: &spec.StreamTextChunk{
 				Text: chunk,
@@ -288,7 +328,7 @@ func (api *AnthropicMessagesAPI) doStreaming(
 		}
 		event := spec.StreamEvent{
 			Kind:     spec.StreamContentKindThinking,
-			Provider: api.ProviderParam.Name,
+			Provider: providerName,
 			Model:    modelName,
 			Thinking: &spec.StreamThinkingChunk{Text: chunk},
 		}
@@ -306,7 +346,7 @@ func (api *AnthropicMessagesAPI) doStreaming(
 		streamCfg.FlushChunkSize,
 	)
 
-	stream := api.client.Messages.NewStreaming(
+	stream := client.Messages.NewStreaming(
 		ctx,
 		params,
 		option.WithRequestTimeout(timeout),

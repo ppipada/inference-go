@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openai/openai-go/v3"
@@ -21,9 +22,9 @@ import (
 // OpenAIChatCompletionsAPI struct that implements the CompletionProvider interface.
 type OpenAIChatCompletionsAPI struct {
 	ProviderParam *spec.ProviderParam
-
-	debugger spec.CompletionDebugger
-	client   *openai.Client
+	debugger      spec.CompletionDebugger
+	client        *openai.Client
+	mu            sync.RWMutex
 }
 
 func NewOpenAIChatCompletionsAPI(
@@ -40,24 +41,32 @@ func NewOpenAIChatCompletionsAPI(
 }
 
 func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
-	if !api.IsConfigured(ctx) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.ProviderParam == nil {
+		api.client = nil
+		return errors.New("openai chat completion api LLM: no ProviderParam found")
+	}
+	if strings.TrimSpace(api.ProviderParam.APIKey) == "" {
 		logutil.Debug(
 			string(
 				api.ProviderParam.Name,
 			) + ": No API key given. Not initializing OpenAIChatCompletionsAPI LLM object",
 		)
+		api.client = nil
 		return nil
 	}
 
+	pi := *api.ProviderParam // snapshot under lock
 	opts := []option.RequestOption{
-		option.WithAPIKey(api.ProviderParam.APIKey),
+		option.WithAPIKey(pi.APIKey),
 	}
 
 	providerURL := spec.DefaultOpenAIOrigin
-	if api.ProviderParam.Origin != "" {
-		baseURL := strings.TrimSuffix(api.ProviderParam.Origin, "/")
+	if pi.Origin != "" {
+		baseURL := strings.TrimSuffix(pi.Origin, "/")
 
-		pathPrefix := api.ProviderParam.ChatCompletionPathPrefix
+		pathPrefix := pi.ChatCompletionPathPrefix
 		// Remove "chat/completions" from pathPrefix if present; SDK adds it internally.
 		pathPrefix = strings.TrimSuffix(
 			pathPrefix,
@@ -67,18 +76,18 @@ func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 		opts = append(opts, option.WithBaseURL(strings.TrimSuffix(providerURL, "/")))
 	}
 
-	for k, v := range api.ProviderParam.DefaultHeaders {
+	for k, v := range pi.DefaultHeaders {
 		opts = append(opts, option.WithHeader(strings.TrimSpace(k), strings.TrimSpace(v)))
 	}
 
-	if api.ProviderParam.APIKeyHeaderKey != "" &&
+	if pi.APIKeyHeaderKey != "" &&
 		!strings.EqualFold(
-			api.ProviderParam.APIKeyHeaderKey,
+			pi.APIKeyHeaderKey,
 			spec.DefaultAuthorizationHeaderKey,
 		) {
 		opts = append(
 			opts,
-			option.WithHeader(api.ProviderParam.APIKeyHeaderKey, api.ProviderParam.APIKey),
+			option.WithHeader(pi.APIKeyHeaderKey, pi.APIKey),
 		)
 	}
 
@@ -93,7 +102,7 @@ func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 	logutil.Info(
 		"openai chat completions api LLM provider initialized",
 		"name",
-		string(api.ProviderParam.Name),
+		string(pi.Name),
 		"URL",
 		providerURL,
 	)
@@ -101,21 +110,36 @@ func (api *OpenAIChatCompletionsAPI) InitLLM(ctx context.Context) error {
 }
 
 func (api *OpenAIChatCompletionsAPI) DeInitLLM(ctx context.Context) error {
+	api.mu.Lock()
+	var name spec.ProviderName
+	if api.ProviderParam != nil {
+		name = api.ProviderParam.Name
+	}
 	api.client = nil
+	api.mu.Unlock()
 	logutil.Info(
 		"openai chat completions api LLM: provider de initialized",
 		"name",
-		string(api.ProviderParam.Name),
+		string(name),
 	)
 	return nil
 }
 
 func (api *OpenAIChatCompletionsAPI) GetProviderInfo(ctx context.Context) *spec.ProviderParam {
-	return api.ProviderParam
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	if api.ProviderParam == nil {
+		return nil
+	}
+	cp := *api.ProviderParam
+	cp.DefaultHeaders = sdkutil.CloneStringMap(cp.DefaultHeaders)
+	return &cp
 }
 
 func (api *OpenAIChatCompletionsAPI) IsConfigured(ctx context.Context) bool {
-	return api.ProviderParam != nil && api.ProviderParam.APIKey != ""
+	api.mu.RLock()
+	defer api.mu.RUnlock()
+	return api.ProviderParam != nil && strings.TrimSpace(api.ProviderParam.APIKey) != ""
 }
 
 // SetProviderAPIKey sets the key for a provider.
@@ -123,14 +147,15 @@ func (api *OpenAIChatCompletionsAPI) SetProviderAPIKey(
 	ctx context.Context,
 	apiKey string,
 ) error {
-	if apiKey == "" {
-		return errors.New("openai chat completions api LLM: invalid apikey provided")
-	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
 	if api.ProviderParam == nil {
 		return errors.New("openai chat completions api LLM: no ProviderParam found")
 	}
 
-	api.ProviderParam.APIKey = apiKey
+	// Allow empty to clear.
+	api.ProviderParam.APIKey = strings.TrimSpace(apiKey)
 
 	return nil
 }
@@ -140,7 +165,15 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	req *spec.FetchCompletionRequest,
 	opts *spec.FetchCompletionOptions,
 ) (*spec.FetchCompletionResponse, error) {
-	if api.client == nil {
+	api.mu.RLock()
+	client := api.client
+	var pi spec.ProviderParam
+	if api.ProviderParam != nil {
+		pi = *api.ProviderParam
+	}
+	api.mu.RUnlock()
+
+	if client == nil {
 		return nil, errors.New("openai chat completions api LLM: client not initialized")
 	}
 	if req == nil || len(req.Inputs) == 0 || req.ModelParam.Name == "" {
@@ -153,7 +186,7 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 		req.ModelParam.SystemPrompt,
 		req.Inputs,
 		req.ModelParam.Name,
-		api.ProviderParam.Name,
+		pi.Name,
 	)
 	if err != nil {
 		return nil, err
@@ -210,7 +243,7 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	var span spec.CompletionSpan
 	if api.debugger != nil {
 		ctx, span = api.debugger.StartSpan(ctx, &spec.CompletionSpanStart{
-			Provider: api.ProviderParam.Name,
+			Provider: pi.Name,
 			Model:    req.ModelParam.Name,
 			Request:  req,
 			Options:  opts,
@@ -226,6 +259,8 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 	if useStream {
 		normalizedResp, fullRawResp, apiErr = api.doStreaming(
 			ctx,
+			client,
+			pi.Name,
 			req.ModelParam.Name,
 			params,
 			opts,
@@ -233,7 +268,7 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 			toolChoiceNameMap,
 		)
 	} else {
-		normalizedResp, fullRawResp, apiErr = api.doNonStreaming(ctx, params, timeout, toolChoiceNameMap)
+		normalizedResp, fullRawResp, apiErr = api.doNonStreaming(ctx, client, params, timeout, toolChoiceNameMap)
 	}
 
 	if span != nil {
@@ -256,13 +291,14 @@ func (api *OpenAIChatCompletionsAPI) FetchCompletion(
 
 func (api *OpenAIChatCompletionsAPI) doNonStreaming(
 	ctx context.Context,
+	client *openai.Client,
 	params openai.ChatCompletionNewParams,
 	timeout time.Duration,
 	toolChoiceNameMap map[string]spec.ToolChoice,
 ) (*spec.FetchCompletionResponse, *openai.ChatCompletion, error) {
 	resp := &spec.FetchCompletionResponse{}
 
-	oaiResp, err := api.client.Chat.Completions.New(ctx, params, option.WithRequestTimeout(timeout))
+	oaiResp, err := client.Chat.Completions.New(ctx, params, option.WithRequestTimeout(timeout))
 
 	resp.Usage = usageFromOpenAIChatCompletion(oaiResp)
 	if err != nil {
@@ -277,6 +313,8 @@ func (api *OpenAIChatCompletionsAPI) doNonStreaming(
 
 func (api *OpenAIChatCompletionsAPI) doStreaming(
 	ctx context.Context,
+	client *openai.Client,
+	providerName spec.ProviderName,
 	modelName spec.ModelName,
 	params openai.ChatCompletionNewParams,
 	opts *spec.FetchCompletionOptions,
@@ -292,7 +330,7 @@ func (api *OpenAIChatCompletionsAPI) doStreaming(
 		}
 		event := spec.StreamEvent{
 			Kind:     spec.StreamContentKindText,
-			Provider: api.ProviderParam.Name,
+			Provider: providerName,
 			Model:    modelName,
 			Text: &spec.StreamTextChunk{
 				Text: chunk,
@@ -308,7 +346,7 @@ func (api *OpenAIChatCompletionsAPI) doStreaming(
 		streamCfg.FlushChunkSize,
 	)
 
-	stream := api.client.Chat.Completions.NewStreaming(
+	stream := client.Chat.Completions.NewStreaming(
 		ctx,
 		params,
 		option.WithRequestTimeout(timeout),
