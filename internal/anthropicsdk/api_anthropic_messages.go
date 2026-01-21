@@ -1247,7 +1247,11 @@ func outputsFromAnthropicMessage(
 				if len(v.Content.OfWebSearchResultBlockArray) == 0 {
 					continue
 				}
-				wsOut.WebSearchToolOutputItems = make([]spec.WebSearchToolOutputItemUnion, 0, len(v.Content.OfWebSearchResultBlockArray))
+				wsOut.WebSearchToolOutputItems = make(
+					[]spec.WebSearchToolOutputItemUnion,
+					0,
+					len(v.Content.OfWebSearchResultBlockArray),
+				)
 				for _, w := range v.Content.OfWebSearchResultBlockArray {
 					search := &spec.WebSearchToolOutputSearch{
 						URL:              w.URL,
@@ -1255,10 +1259,13 @@ func outputsFromAnthropicMessage(
 						EncryptedContent: w.EncryptedContent,
 						PageAge:          w.PageAge,
 					}
-					wsOut.WebSearchToolOutputItems = append(wsOut.WebSearchToolOutputItems, spec.WebSearchToolOutputItemUnion{
-						Kind:       spec.WebSearchToolOutputKindSearch,
-						SearchItem: search,
-					})
+					wsOut.WebSearchToolOutputItems = append(
+						wsOut.WebSearchToolOutputItems,
+						spec.WebSearchToolOutputItemUnion{
+							Kind:       spec.WebSearchToolOutputKindSearch,
+							SearchItem: search,
+						},
+					)
 
 				}
 				outs = append(

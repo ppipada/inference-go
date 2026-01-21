@@ -441,8 +441,8 @@ func TestScrubber_Cycles(t *testing.T) {
 		{
 			name: "SliceSelfCycleYieldsCycleToken.",
 			in: func() map[string]any {
-				garage := []any{"BMW"}
-				garage = append(garage, nil)
+				garage := make([]any, 2)
+				garage[0] = "BMW"
 				garage[1] = garage // Self-reference.
 				return map[string]any{"Garage": garage}
 			},
