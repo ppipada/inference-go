@@ -1,0 +1,330 @@
+# Project TODO
+
+## Done
+
+- Model selection
+  - Normalized: ModelParam.Name
+  - Anthropic: model
+  - OpenAI Responses: model
+  - OpenAI Chat: model
+- System/developer instructions
+  - Normalized: ModelParam.SystemPrompt
+  - Anthropic: top-level system
+  - OpenAI Responses: instructions
+  - OpenAI Chat: system/developer message (adapter policy)
+- Max output tokens
+  - Normalized: ModelParam.MaxOutputLength
+  - Anthropic: max_tokens
+  - OpenAI Responses: max_output_tokens
+  - OpenAI Chat: max_tokens
+- Temperature
+  - Normalized: ModelParam.Temperature
+  - Anthropic: temperature
+    - Adapter rule: when thinking is enabled, do not allow temperature (enforce provider constraint)
+  - OpenAI Responses: temperature
+  - OpenAI Chat: temperature
+- Streaming
+  - Normalized: ModelParam.Stream plus FetchCompletionOptions.StreamHandler
+  - Anthropic: stream
+  - OpenAI Responses: stream
+  - OpenAI Chat: stream
+  - Notes
+    - Unified stream events for text and thinking where exposed
+    - OpenAI Responses stream-only options like include_obfuscation are not implemented (explicitly deferred below)
+- Reasoning/thinking
+  - Normalized: ModelParam.Reasoning plus ReasoningContent
+  - Anthropic: thinking blocks, redacted thinking supported
+  - OpenAI Responses: reasoning config plus reasoning items supported
+    - Note carried forward: reasoning summary/verbosity controls are pending (captured in To do next)
+  - OpenAI Chat: reasoning_effort supported as config only
+    - Chat does not support reasoning blocks as message content; adapter drops reasoning messages
+- Tools (client function/custom tool definitions)
+  - Normalized: FetchCompletionRequest.ToolChoices is currently treated as tool definitions available
+  - Anthropic: tools[]
+  - OpenAI Responses: tools[]
+  - OpenAI Chat: tools[]
+  - Notes
+    - Function call and custom tool call content are supported in input and output
+    - Tool selection behavior is not normalized yet (captured in To do next as ToolPolicy)
+- Web search
+  - Normalized: ToolTypeWebSearch tool def/choice mapping
+  - Anthropic: server web search tool use supported
+  - OpenAI Responses: built-in web search tool use supported
+  - OpenAI Chat: web_search_options supported
+  - Notes
+    - Output differs by provider; OpenAI often surfaces results as citations/annotations
+- Attachments (stateless approach, no vendor file IDs)
+  - Normalized: ContentItemImage, ContentItemFile
+  - Anthropic
+    - Images supported (base64 or URL)
+    - Documents supported for PDFs (base64 or URL)
+    - Text file support is intended and explicitly tracked in To do next (plain-text document mapping)
+  - OpenAI Responses
+    - Images and files supported (base64 or URL)
+    - Input/output should not rely on vendor file_id (stateful property is not supported)
+  - OpenAI Chat
+    - Images supported (base64 or URL)
+    - Files supported (base64 only)
+  - Notes carried forward from old matrix
+    - Input message: everything supported except stateful properties inside image/file content (notably file_id)
+    - Tool call outputs: everything supported except stateful properties (notably file_id)
+- Usage and debug
+  - Normalized: Usage, DebugDetails
+  - OpenAI Responses notes carried forward
+    - Supported usage: input tokens, output tokens, cached tokens usage
+    - Supported error surfacing
+    - Everything else stays in opaque debug/details payload (not promoted)
+  - Anthropic notes carried forward
+    - Supported usage: input/output tokens usage
+    - Other fields like id/model/stop reason/stop sequence/cache tokens/service tier are not promoted; remain in opaque details/debug
+
+## TODO Next
+
+Top-level request params and controls
+
+- Top-p
+  - Spec change
+    - Add ModelParam.TopP \*float64
+  - Anthropic mapping: top_p
+  - OpenAI Responses mapping: top_p
+  - OpenAI Chat mapping: top_p
+  - Priority: Anthropic P0, Responses P0, Chat P0
+  - Validation: range 0 to 1
+  - Note carried forward
+    - Old matrix listed topP as not supported for both Anthropic and Responses; treat that as not supported in the wrapper at the time, not as a hard vendor limitation
+- Structured output (output format / JSON schema)
+  - Spec change
+    - Add ModelParam.OutputFormat \*spec.OutputFormat
+    - OutputFormat minimal shape
+      - type = text
+      - type = json_object
+      - type = json_schema with schema object, optional strict bool, optional name string
+  - Anthropic mapping
+    - output_config.format for json_schema
+    - json_object cannot be enforced as a first-class mode; behavior should be documented as best-effort (typically instruction-based)
+  - OpenAI Responses mapping
+    - text.format with type = text/json_object/json_schema (plus json_schema payload)
+  - OpenAI Chat mapping
+    - response_format with type = text/json_object/json_schema (plus json_schema payload)
+  - Priority: Anthropic P0, Responses P0, Chat P0
+  - Notes carried forward
+    - Old matrix listed Responses output format as not supported; preserve that as “previous wrapper state”
+    - Implementation should be capability-gated if your target Responses spec/version lacks text.format
+- Tool selection policy (separate from tool definitions)
+  - Spec change
+    - Add FetchCompletionRequest.ToolPolicy \*spec.ToolPolicy
+    - Keep ToolChoices as tool definitions available to avoid breaking callers
+  - Anthropic mapping: tool_choice (auto/any/tool/none patterns)
+  - OpenAI Responses mapping: tool_choice (string/object)
+  - OpenAI Chat mapping: tool_choice
+  - Priority: Anthropic P0, Responses P0, Chat P0
+  - Notes carried forward
+    - Fixes the current mismatch where ToolChoices effectively means tools[] only
+- Disable parallel tool use (at most one tool call)
+  - Spec change
+    - Add ToolPolicy.DisableParallel bool (or equivalent)
+  - Anthropic mapping: tool_choice.\*.disable_parallel_tool_use
+  - OpenAI Chat mapping: parallel_tool_calls (where supported)
+  - OpenAI Responses mapping: best-effort only if the endpoint supports an equivalent control; otherwise ignore with clear documentation
+  - Priority: Anthropic P1, Responses P1, Chat P1
+  - Notes carried forward
+    - Old matrix listed Responses parallel_tool_calls as not supported; keep that expectation unless you later confirm a stable mapping in your chosen Responses API version
+- Stop sequences
+  - Spec change
+    - Add ModelParam.StopSequences []string (or Stop []string)
+  - Anthropic mapping: stop_sequences
+  - OpenAI Chat mapping: stop (string or array)
+  - OpenAI Responses mapping: explicitly unsupported at wrapper level for now (omit, no client-side trimming)
+  - Priority: Anthropic P0, Responses P2, Chat P0
+  - Notes carried forward
+    - Old matrix listed Anthropic stop sequences array as not supported; preserve that as “previous wrapper state”
+- Reasoning verbosity and summary control
+  - Spec change
+    - Extend ReasoningParam with fields that map to Responses when available, e.g.
+      - Verbosity \*string
+      - Summary \*bool or SummaryStyle \*string
+  - OpenAI Responses mapping: reasoning.verbosity and summary-related config only if exposed in your target API
+  - Anthropic mapping: no direct equivalent, no-op
+  - OpenAI Chat mapping: no direct equivalent beyond reasoning_effort, no-op
+  - Priority: Anthropic P2, Responses P1, Chat P2
+  - Notes carried forward
+    - This captures the old note that “reasoning summary config is pending” for Responses
+- Safe provider passthrough (allowlisted merge)
+  - Spec change
+    - Implement ModelParam.AdditionalParametersRawJSON merged into vendor request with per-adapter allowlist and validation
+  - Priority: Anthropic P1, Responses P1, Chat P1
+  - Notes carried forward
+    - Old matrix explicitly said metadata/service tiers were not supported; in the new plan, passthrough is the only place they could later be exposed safely, but they remain explicitly deferred by default (see deferred list)
+  - Constraints
+    - Must be allowlisted
+    - Must not introduce stateful behavior
+    - Must fail closed on unknown keys
+
+## Context enhancements
+
+- CacheControl mapping (ephemeral)
+  - Spec change: none (spec.CacheControl exists)
+  - Anthropic mapping: cache_control on supported blocks (text/image/document/tool)
+  - OpenAI Responses mapping: ignore (no direct equivalent)
+  - OpenAI Chat mapping: ignore (no direct equivalent)
+  - Priority: Anthropic P0, Responses P2, Chat P2
+- Anthropic plain-text document support
+  - Spec change: none (already ContentItemFile.FileMIME/FileData)
+  - Implementation
+    - Decode base64 for text/\* and map to Anthropic plain-text document source
+  - Priority: Anthropic P0
+  - Notes carried forward
+    - Old matrix: “Document source supports pdf, url pdf and text file”; this item ensures the wrapper actually maps text files rather than ignoring them
+- Role validation (do not silently drop)
+  - Spec change: none required; add request validation
+  - Behavior
+    - Enforce supported roles and item types for InputMessage/OutputMessage/reasoning/tool items
+    - Return normalized error instead of silently dropping
+  - Priority: Anthropic P0, Responses P0, Chat P0
+- Citations beyond URL (stateless subset only)
+  - Spec change
+    - Optionally extend spec.CitationKind for stateless offsets (page/char), but do not add vendor file handles
+  - Priority: Anthropic P2, Responses P2, Chat P2
+  - Notes carried forward
+    - OpenAI Responses: do not support citations like file/container/filepath in stateless mode; only normalize what can be represented statelessly
+    - Anthropic: do not support citation variants like content block location/search result location for now; keep URL citations only unless a stateless design is clear
+
+## Other things (later)
+
+- Logprobs
+  - Spec change
+    - Add ModelParam.LogProbs config and output fields
+  - OpenAI Responses
+    - Potential mapping: top_logprobs plus include paths if supported
+  - OpenAI Chat
+    - Logprobs controls are model-dependent
+  - Anthropic
+    - No equivalent
+  - Priority: Responses P2, Chat P2
+  - Notes carried forward
+    - Old matrix: Responses did not support top_logprobs in wrapper
+- Presence and frequency penalties
+  - Spec change
+    - Add ModelParam.PresencePenalty, ModelParam.FrequencyPenalty
+  - OpenAI Chat mapping: presence_penalty, frequency_penalty
+  - OpenAI Responses mapping: only if supported in your target API; otherwise ignore
+  - Anthropic mapping: no equivalent
+  - Priority: Responses P2, Chat P2
+- Seed and logit_bias
+  - Spec change
+    - Prefer allowlisted passthrough rather than first-class fields, unless you decide they must be normalized
+  - Priority: Responses P2, Chat P2
+- Promote more response metadata (small stable set)
+  - Spec change
+    - Extend FetchCompletionResponse with a minimal stable set like id, model, stop_reason, stop_sequence when safe
+  - Priority: Anthropic P2, Responses P2, Chat P2
+  - Notes carried forward
+    - Old matrix: these were not promoted and remained opaque details/debug
+
+## Explicitly deferred
+
+- OpenAI Responses explicit deferrals carried forward
+  - Tool options
+    - Max tool calls
+    - parallel_tool_calls as a general control (outside of the new “disable parallel” best-effort path)
+  - metadata opaque kv pairs
+    - Deferred as a first-class normalized feature
+    - If ever needed, only via allowlisted passthrough and still subject to stateless constraints
+  - prompt_cache_key and prompt_cache_retention
+  - safety_identifier / userid for safety tracking
+  - include_obfuscation in stream options
+  - Service tiers
+  - Text verbosity controls outside of reasoning (keep deferred; do not standardize)
+  - topK (Top-K sampling)
+  - truncation options
+  - Stateful params and server-managed continuation
+    - background
+    - conversation
+    - prompt objects
+    - previous_response_id
+  - Output params not promoted
+    - Everything except usage (including cached token usage) and error remains opaque details/debug
+  - Content and tool ecosystem
+    - Image generation call and image output modality
+    - Item reference (unclear; likely stateful)
+    - Compaction (stateful)
+    - Tool calls/outputs for hosted execution tools
+      - Code interpreter
+      - Local shell
+      - Shell
+      - Apply patch
+    - MCP-specific schemas
+      - MCP list tools
+      - Approval request/response
+      - MCP tool call
+  - Tool choice ecosystem deferrals carried forward
+    - File search (vector stores)
+    - Remote MCP
+    - Remote connectors
+    - Image generation
+    - Shell tool (host-driven fixed schema; prefer safer client-owned tools)
+    - Apply patch tool (host-driven patch apply flow; prefer safer client-owned tools)
+    - Computer use
+    - Code interpreter
+    - Local shell tool (outdated; codex mini only)
+- Anthropic explicit deferrals carried forward
+  - metadata userid for safety tracking
+  - Service tiers
+  - Top-K sampling
+  - SearchResultBlock support (input or output)
+  - Citation types beyond URL
+    - char location
+    - page location
+    - content block location
+    - search result location
+  - Document “content block source” inside document source
+    - Defer until there is a clear stateless use case and a clean abstraction
+  - Tool choice ecosystem deferrals carried forward
+    - Remote MCP connector
+    - Bash tool (session semantics)
+    - Text editor tool (patch-like command semantics)
+  - Tooling explicitly not doing
+    - Computer use
+    - Code execution (hosted sandbox)
+    - Programmatic tool calling (looped code execution plus tool calls)
+    - Memory tool
+    - Tool search tool (server-side tool library and search)
+    - Web fetch tool
+      - Marked as not doing because local URL fetch and send is better for stateless control, processing, and error handling
+- Cross-provider deferrals carried forward
+  - Vendor file IDs and stateful file ecosystems
+    - No reliance on vendor file_id in inputs/outputs
+    - No vector stores / file search
+  - Hosted execution / “computer use” tool families
+  - MCP connectors and remote connectors
+  - Image output modality and image generation abstractions
+
+## Notes / commentary / thought process
+
+- OpenAI Responses content support summary (non-table)
+  - Input message: support all content except stateful properties inside image/file content (notably file_id)
+  - Output message: support text and URL citations (web search)
+  - Output message: do not support logprobs and do not normalize citations that require stateful handles (file/container/filepath)
+  - Reasoning: supported (summary/verbosity controls pending as a separate config surface)
+  - Function call/custom tool call: supported
+  - Tool call output: supported except stateful properties (notably file_id)
+  - Web search tool call and result: supported
+  - Item reference: unclear; likely stateful; explicitly deferred
+  - Compaction: stateful; explicitly deferred
+- Anthropic content support summary (non-table)
+  - Text: supported, including URL citations for web search results
+  - Images: supported
+  - Documents: pdf, url pdf, text file supported at intent level; wrapper still needs explicit plain-text mapping implementation
+  - Thinking and redacted thinking: supported
+  - Tool use: supported, including server web search
+  - Tool result: text/image/document/web search tool result supported
+  - SearchResultBlock: not supported (deferred)
+  - Document content block source: unclear duplication vs top-level content; deferred
+- Nitpicks / open questions (kept as-is)
+  - Anthropic: server tool use block with websearch input typed as any is odd; keep an eye on schema stability and validation strategy
+  - Anthropic: why content block source exists inside document source for input; unclear when it should be used vs top-level text/image; deferred
+  - Image output modality
+    - Anthropic does not support image generation
+    - OpenAI supports image output via an image generation tool, not as standard message content
+    - Google generate content may treat image gen as direct I/O content via dedicated models
+    - Given the mismatch, keep image output as deferred until a deliberate cross-vendor abstraction is chosen

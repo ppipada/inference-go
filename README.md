@@ -28,7 +28,7 @@ A single interface in Go to get inference from multiple LLM / AI providers using
   - OpenAI Responses API [Official SDK used](https://github.com/openai/openai-go)
 
 - Normalized data model in `spec/`:
-  - messages (user / assistant / system / developer),
+  - messages (user / assistant / system/developer instructions are provided via `ModelParam.SystemPrompt`),
   - text, images, and files, (no audio/video content types yet),
   - tools (function, custom, built-in tools like web search),
   - reasoning / thinking content,
@@ -82,21 +82,21 @@ Basic pattern:
 
 Feature support
 
-| Area                      | Supported? | Notes                                                                                       |
-| ------------------------- | ---------: | ------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | User and assistant messages mapped to text blocks.                                          |
-| Streaming text            |        yes |                                                                                             |
-| Reasoning / thinking      |        yes | Redacted thinking is also supported; not streamed to caller.                                |
-| Streaming thinking        |        yes |                                                                                             |
-| Images (input)            |        yes | Inline base64 (`imageData`) or remote URLs (`imageURL`) mapped to Anthropic image blocks.   |
-| Files / documents (input) |        yes | PDFs only, via base64 or URL. Plain-text base64 and other MIME types are currently ignored. |
-| Audio/Video input/output  |         no |                                                                                             |
-| Tools (function/custom)   |        yes | JSON Schema based.                                                                          |
-| Web search                |        yes | Server web search tool use + web search result blocks.                                      |
-| Citations                 |    partial | URL citations only. Other stateful citations are not mapped.                                |
-| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                |
-| Stateful flows            |         no | Library focuses on stateless calls only.                                                    |
-| Usage data                |        yes | Input/Output/Cached. Anthropic doesn't expose Reasoning tokens usage.                       |
+| Area                      | Supported? | Notes                                                                                                            |
+| ------------------------- | ---------: | ---------------------------------------------------------------------------------------------------------------- |
+| Text input/output         |        yes | User and assistant messages mapped to text blocks.                                                               |
+| Streaming text            |        yes |                                                                                                                  |
+| Reasoning / thinking      |        yes | Redacted thinking is supported; not streamed to caller. API Constraint: Thinking enabled == temperature omitted. |
+| Streaming thinking        |        yes |                                                                                                                  |
+| Images (input)            |        yes | Inline base64 (`imageData`) or remote URLs (`imageURL`) mapped to Anthropic image blocks.                        |
+| Files / documents (input) |        yes | PDFs only, via base64 or URL. Plain-text base64 and other MIME types are currently ignored.                      |
+| Audio/Video input/output  |         no |                                                                                                                  |
+| Tools (function/custom)   |        yes | JSON Schema based.                                                                                               |
+| Web search                |        yes | Server web search tool use + web search result blocks.                                                           |
+| Citations                 |    partial | URL citations only. Other stateful citations are not mapped.                                                     |
+| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                     |
+| Stateful flows            |         no | Library focuses on stateless calls only.                                                                         |
+| Usage data                |        yes | Input/Output/Cached. Anthropic doesn't expose Reasoning tokens usage.                                            |
 
 - Behavior for conversational + interleaved reasoning message input
   - Input: No reasoning content in the incoming messages.
@@ -110,21 +110,21 @@ Feature support
 
 Feature support
 
-| Area                      | Supported? | Notes                                                                                                               |
-| ------------------------- | ---------: | ------------------------------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | Input/output messages fully supported.                                                                              |
-| Streaming text            |        yes |                                                                                                                     |
-| Reasoning / thinking      |        yes | Reasoning items mapped to `ReasoningContent`, including encrypted content.                                          |
-| Streaming thinking        |        yes |                                                                                                                     |
-| Images (input)            |        yes | `imageData` (base64) or `imageURL`, with `detail` low/high/auto, mapped to Responses `input_image` items.           |
-| Files / documents (input) |        yes | `fileData` (base64) or `fileURL` mapped to Responses `input_file` items; works for PDFs and other file MIME types.  |
-| Audio/Video input/output  |         no |                                                                                                                     |
-| Tools (function/custom)   |        yes | JSON Schema based.                                                                                                  |
-| Web search                |        yes | Server web search tool choice + web search tool call blocks mapped to `webSearch` tool calls in normalized outputs. |
-| Citations                 |        yes | URL citations mapped to `spec.CitationKindURL`.                                                                     |
-| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                        |
-| Stateful flows            |         no | Store is explicitly disabled (`Store: false`).                                                                      |
-| Usage data                |        yes | Input/Output/Cached/Reasoning.                                                                                      |
+| Area                      | Supported? | Notes                                                                                                              |
+| ------------------------- | ---------: | ------------------------------------------------------------------------------------------------------------------ |
+| Text input/output         |        yes | Input/output messages fully supported.                                                                             |
+| Streaming text            |        yes |                                                                                                                    |
+| Reasoning / thinking      |        yes | Reasoning outputs are mapped. Reasoning **inputs** are accepted only as `encrypted_content`; others are dropped.   |
+| Streaming thinking        |        yes |                                                                                                                    |
+| Images (input)            |        yes | `imageData` (base64) or `imageURL`, with `detail` low/high/auto, mapped to Responses `input_image` items.          |
+| Files / documents (input) |        yes | `fileData` (base64) or `fileURL` mapped to Responses `input_file` items; works for PDFs and other file MIME types. |
+| Audio/Video input/output  |         no |                                                                                                                    |
+| Tools (function/custom)   |        yes | JSON Schema based. Note: `custom` tool **definitions** are currently emitted as `function` tools.                  |
+| Web search                |        yes | Calls are mapped when emitted; results typically surface as citations/annotations in text.                         |
+| Citations                 |        yes | URL citations mapped to `spec.CitationKindURL`.                                                                    |
+| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                       |
+| Stateful flows            |         no | Store is explicitly disabled (`Store: false`).                                                                     |
+| Usage data                |        yes | Input/Output/Cached/Reasoning.                                                                                     |
 
 - Behavior for conversational + interleaved reasoning message input
   - Input: No reasoning messages.
@@ -140,14 +140,14 @@ Feature support
 
 | Area                      | Supported? | Notes                                                                                                             |
 | ------------------------- | ---------: | ----------------------------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | Single assistant message per completion (first choice).                                                           |
+| Text input/output         |        yes | Oly the first choice from output is surfaced up.                                                                  |
 | Streaming text            |        yes |                                                                                                                   |
 | Reasoning / thinking      |        yes | Reasoning effort config only; no separate reasoning messages in API.                                              |
 | Streaming thinking        |         no | Not exposed by Chat Completions.                                                                                  |
 | Images (input)            |        yes | `imageData` (base64) and `imageURL` are both supported; base64 is sent as a data URL with `detail` low/high/auto. |
 | Files / documents (input) |        yes | `fileData` (base64) only, sent as a data URL; `fileURL` and stateful file IDs are not used by this adapter.       |
 | Audio/Video input/output  |         no |                                                                                                                   |
-| Tools (function/custom)   |        yes | JSON Schema based.                                                                                                |
+| Tools (function/custom)   |        yes | JSON Schema based. Note: `custom` tool **definitions** are currently emitted as `function` tools.                 |
 | Web search                |        yes | API doesn't expose a tool; mapped via top-level `web_search_options` derived from a `webSearch` ToolChoice.       |
 | Citations                 |        yes | URL citations mapped from annotations.                                                                            |
 | Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                      |
