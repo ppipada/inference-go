@@ -82,21 +82,21 @@ Basic pattern:
 
 Feature support
 
-| Area                      | Supported? | Notes                                                                                                            |
-| ------------------------- | ---------: | ---------------------------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | User and assistant messages mapped to text blocks.                                                               |
-| Streaming text            |        yes |                                                                                                                  |
-| Reasoning / thinking      |        yes | Redacted thinking is supported; not streamed to caller. API Constraint: Thinking enabled == temperature omitted. |
-| Streaming thinking        |        yes |                                                                                                                  |
-| Images (input)            |        yes | Inline base64 (`imageData`) or remote URLs (`imageURL`) mapped to Anthropic image blocks.                        |
-| Files / documents (input) |        yes | PDFs only, via base64 or URL. Plain-text base64 and other MIME types are currently ignored.                      |
-| Audio/Video input/output  |         no |                                                                                                                  |
-| Tools (function/custom)   |        yes | JSON Schema based.                                                                                               |
-| Web search                |        yes | Server web search tool use + web search result blocks.                                                           |
-| Citations                 |    partial | URL citations only. Other stateful citations are not mapped.                                                     |
-| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                     |
-| Stateful flows            |         no | Library focuses on stateless calls only.                                                                         |
-| Usage data                |        yes | Input/Output/Cached. Anthropic doesn't expose Reasoning tokens usage.                                            |
+| Area                      | Supported? | Notes                                                                                                        |
+| ------------------------- | ---------: | ------------------------------------------------------------------------------------------------------------ |
+| Text input/output         |        yes | User and assistant messages mapped to text blocks.                                                           |
+| Streaming text            |        yes |                                                                                                              |
+| Reasoning / thinking      |        yes | Thinking/Redacted is supported; redacted is not streamed to caller. Thinking enabled == temperature omitted. |
+| Streaming thinking        |        yes |                                                                                                              |
+| Images (input)            |        yes | Inline base64 (`imageData`) or remote URLs (`imageURL`) mapped to Anthropic image blocks.                    |
+| Files / documents (input) |        yes | PDFs only, via base64 or URL. Plain-text base64 and other MIME types are currently ignored.                  |
+| Audio/Video input/output  |         no |                                                                                                              |
+| Tools (function/custom)   |        yes | JSON Schema based.                                                                                           |
+| Web search                |        yes | Server web search tool use + web search tool-result blocks.                                                  |
+| Citations                 |    partial | URL citations only. Other stateful citations are not mapped.                                                 |
+| Metadata / service tiers  |     opaque | Not exposed in normalized types; available in debug payload.                                                 |
+| Stateful flows            |         no | Library focuses on stateless calls only.                                                                     |
+| Usage data                |        yes | Input/Output/Cached. Anthropic doesn't expose Reasoning tokens usage.                                        |
 
 - Behavior for conversational + interleaved reasoning message input
   - Input: No reasoning content in the incoming messages.
@@ -140,7 +140,7 @@ Feature support
 
 | Area                      | Supported? | Notes                                                                                                             |
 | ------------------------- | ---------: | ----------------------------------------------------------------------------------------------------------------- |
-| Text input/output         |        yes | Oly the first choice from output is surfaced up.                                                                  |
+| Text input/output         |        yes | Only the first choice from output is surfaced up.                                                                 |
 | Streaming text            |        yes |                                                                                                                   |
 | Reasoning / thinking      |        yes | Reasoning effort config only; no separate reasoning messages in API.                                              |
 | Streaming thinking        |         no | Not exposed by Chat Completions.                                                                                  |

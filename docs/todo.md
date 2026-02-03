@@ -182,6 +182,7 @@
   - Text verbosity controls outside of reasoning (do not standardize)
   - topK (Top-K sampling)
   - truncation options
+  - `metadata.user_id` (SDKs support partially and differently)
 
 - Stateful params and server-managed continuation controls (not supported)
   - `background`
@@ -309,13 +310,17 @@
 
 - Usage and debug
   - Normalized: `Usage`, `DebugDetails`
+  - HTTP debugging
+    - Pluggable `CompletionDebugger` interface (span-based)
+    - Built-in `debugclient.HTTPCompletionDebugger`
+    - Scrubbed HTTP request/response metadata attached to `FetchCompletionResponse.DebugDetails`
   - OpenAI Responses (notes carried forward)
     - Supported usage: input tokens, output tokens, cached tokens usage
     - Supported error surfacing
     - Everything else remains in opaque debug/details payload (not promoted)
   - Anthropic (notes carried forward)
-    - Supported usage: input/output tokens usage
-    - Other fields like id/model/stop reason/stop sequence/cache tokens/service tier are not promoted; remain opaque details/debug
+    - Supported usage: input/output tokens usage, plus cached token accounting where exposed
+    - Other fields like id/model/stop reason/stop sequence/service tier are not promoted; remain opaque details/debug
 
 ### TODO Output
 
@@ -334,6 +339,12 @@
   - Everything except usage (including cached token usage) and error remains opaque details/debug
 
 ## Context management
+
+- Heuristic prompt filtering by approximate token count
+  - Normalized: `ModelParam.MaxPromptLength`
+  - Implementation: `sdkutil.FilterMessagesByTokenCount` (approximate / heuristic)
+  - Notes
+    - This is not a provider-native truncation control; it is wrapper-side filtering to keep requests under a target size.
 
 ### TODO Context
 
