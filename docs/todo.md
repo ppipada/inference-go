@@ -1,5 +1,7 @@
 # Project TODO
 
+- [Input/output modalities](#inputoutput-modalities)
+  - [Done IO](#done-io)
 - [Top-level request params \& controls](#top-level-request-params--controls)
   - [Done Params](#done-params)
   - [TODO Params](#todo-params)
@@ -8,8 +10,6 @@
   - [Done Tools](#done-tools)
   - [TODO Tools](#todo-tools)
   - [Deferred Tools](#deferred-tools)
-- [Input/output modalities](#inputoutput-modalities)
-  - [Done IO](#done-io)
   - [TODO IO](#todo-io)
   - [Deferred IO](#deferred-io)
 - [Output metadata](#output-metadata)
@@ -19,6 +19,34 @@
 - [Context management](#context-management)
   - [TODO Context](#todo-context)
   - [Deferred Context](#deferred-context)
+
+## Input/output modalities
+
+### Done IO
+
+- Conversation turns / input messages
+  - Normalized: `FetchCompletionRequest.Messages`
+  - Anthropic: top-level `messages` (role = user/assistant; system is separate top-level `system`)
+  - OpenAI Responses: top-level `input` (string or array; adapter uses array-of-{role,content} form)
+  - OpenAI Chat: top-level `messages`
+  - Notes
+    - OpenAI Chat message objects may include `name` (not currently normalized; see Deferred Params)
+
+- Attachments (stateless approach; no vendor file IDs)
+  - Normalized: `ContentItemImage`, `ContentItemFile`
+  - Anthropic
+    - Images supported (base64 or URL)
+    - Documents supported for PDFs (base64 or URL)
+    - Text file support is intended and tracked (see Context management TODO: “Anthropic plain-text document support”)
+  - OpenAI Responses
+    - Images and files supported (base64 or URL)
+    - Input/output must not rely on vendor `file_id` (stateful is not supported)
+  - OpenAI Chat
+    - Images supported (base64 or URL)
+    - Files supported (base64 only)
+  - Notes (carried forward)
+    - Input message: everything supported except stateful properties inside image/file content (notably `file_id`)
+    - Tool call outputs: everything supported except stateful properties (notably `file_id`)
 
 ## Top-level request params & controls
 
@@ -172,23 +200,35 @@
 
 > These are intentionally not standardized right now. If ever implemented, most should go through allowlisted passthrough and must remain stateless.
 
-- OpenAI Responses vendor-specific controls
-  - Metadata opaque kv pairs
-    - If ever needed: only via allowlisted passthrough and still subject to stateless constraints
-  - `prompt_cache_key` and `prompt_cache_retention`
-  - `safety_identifier` / `userid` for safety tracking
-  - `include_obfuscation` in stream options
-  - Service tiers
-  - Text verbosity controls outside of reasoning (do not standardize)
-  - topK (Top-K sampling)
-  - truncation options
-  - `metadata.user_id` (SDKs support partially and differently)
-
 - Stateful params and server-managed continuation controls (not supported)
   - `background`
   - `conversation`
   - prompt objects
   - `previous_response_id`
+
+- Anthropic vendor-specific controls (stateless only)
+  - `metadata.user_id` (safety/abuse tracking)
+  - `service_tier` (`auto` / `standard_only`)
+  - `top_k`
+
+- OpenAI Chat vendor-specific controls (stateless only)
+  - `prompt_cache_key` and `prompt_cache_retention`
+  - `safety_identifier`
+  - `service_tier`
+  - Message field `name` (not normalized; ignore or allowlisted passthrough only)
+
+- OpenAI Responses vendor-specific controls (stateless only)
+  - `include` (controls extra output items)
+  - `store` (provider-side storage toggle)
+  - `stream_options`
+    - `include_obfuscation` in stream options
+  - `prompt_cache_key` and `prompt_cache_retention`
+  - `safety_identifier` / `userid` for safety tracking
+  - `service_tier`
+  - `metadata` (opaque kv map)
+    - If ever needed: only via allowlisted passthrough and still subject to stateless constraints
+  - `truncation`
+  - Text verbosity controls outside of reasoning (do not standardize), e.g. `text.verbosity`
 
 ## Tools
 
@@ -250,26 +290,6 @@
   - Web fetch tool
     - Not doing because local URL fetch and send is better for stateless control, processing, and error handling
   - Note: server tool use block with websearch input typed as `any` is odd; keep an eye on schema stability and validation strategy.
-
-## Input/output modalities
-
-### Done IO
-
-- Attachments (stateless approach; no vendor file IDs)
-  - Normalized: `ContentItemImage`, `ContentItemFile`
-  - Anthropic
-    - Images supported (base64 or URL)
-    - Documents supported for PDFs (base64 or URL)
-    - Text file support is intended and tracked (see Context management TODO: “Anthropic plain-text document support”)
-  - OpenAI Responses
-    - Images and files supported (base64 or URL)
-    - Input/output must not rely on vendor `file_id` (stateful is not supported)
-  - OpenAI Chat
-    - Images supported (base64 or URL)
-    - Files supported (base64 only)
-  - Notes (carried forward)
-    - Input message: everything supported except stateful properties inside image/file content (notably `file_id`)
-    - Tool call outputs: everything supported except stateful properties (notably `file_id`)
 
 ### TODO IO
 
