@@ -2,6 +2,8 @@
 
 - [Input/output modalities](#inputoutput-modalities)
   - [Done IO](#done-io)
+  - [TODO IO](#todo-io)
+  - [Deferred IO](#deferred-io)
 - [Top-level request params \& controls](#top-level-request-params--controls)
   - [Done Params](#done-params)
   - [TODO Params](#todo-params)
@@ -10,8 +12,6 @@
   - [Done Tools](#done-tools)
   - [TODO Tools](#todo-tools)
   - [Deferred Tools](#deferred-tools)
-  - [TODO IO](#todo-io)
-  - [Deferred IO](#deferred-io)
 - [Output metadata](#output-metadata)
   - [Done Output](#done-output)
   - [TODO Output](#todo-output)
@@ -47,6 +47,40 @@
   - Notes (carried forward)
     - Input message: everything supported except stateful properties inside image/file content (notably `file_id`)
     - Tool call outputs: everything supported except stateful properties (notably `file_id`)
+
+### TODO IO
+
+- Citations beyond URL (stateless subset only)
+  - Spec change
+    - Optionally extend `spec.CitationKind` for stateless offsets (page/char), but do not add vendor file handles
+  - Priority: Anthropic P2, Responses P2, Chat P2
+  - Notes (carried forward)
+    - OpenAI Responses: do not support citations like file/container/filepath in stateless mode; only normalize stateless representations
+    - Anthropic: do not support citation variants like content block location/search result location for now; keep URL citations only unless a stateless design is clear
+
+### Deferred IO
+
+- Image output modality
+  - Anthropic does not support image generation
+  - OpenAI supports image output via an image generation tool, not as standard message content
+  - Google generate content may treat image gen as direct I/O content via dedicated models
+  - Given the mismatch, keep image output as deferred until a deliberate cross-vendor abstraction is chosen
+
+- Cross-provider:
+  - vendor file IDs and stateful file ecosystems (not supported)
+  - No reliance on vendor `file_id` in inputs/outputs
+
+- Item reference: unclear; likely stateful; explicitly deferred
+- Audio
+- Anthropic:
+  - SearchResultBlock support (input or output); deferred
+  - Document “content block source” inside document source; deferred (unclear when to use vs top-level text/image)
+    - Note: why content block source exists inside document source for input; unclear when it should be used vs top-level text/image.
+  - Citation types beyond URL; deferred
+    - char location
+    - page location
+    - content block location
+    - search result location
 
 ## Top-level request params & controls
 
@@ -290,39 +324,6 @@
   - Web fetch tool
     - Not doing because local URL fetch and send is better for stateless control, processing, and error handling
   - Note: server tool use block with websearch input typed as `any` is odd; keep an eye on schema stability and validation strategy.
-
-### TODO IO
-
-- Citations beyond URL (stateless subset only)
-  - Spec change
-    - Optionally extend `spec.CitationKind` for stateless offsets (page/char), but do not add vendor file handles
-  - Priority: Anthropic P2, Responses P2, Chat P2
-  - Notes (carried forward)
-    - OpenAI Responses: do not support citations like file/container/filepath in stateless mode; only normalize stateless representations
-    - Anthropic: do not support citation variants like content block location/search result location for now; keep URL citations only unless a stateless design is clear
-
-### Deferred IO
-
-- Image output modality
-  - Anthropic does not support image generation
-  - OpenAI supports image output via an image generation tool, not as standard message content
-  - Google generate content may treat image gen as direct I/O content via dedicated models
-  - Given the mismatch, keep image output as deferred until a deliberate cross-vendor abstraction is chosen
-
-- Cross-provider:
-  - vendor file IDs and stateful file ecosystems (not supported)
-  - No reliance on vendor `file_id` in inputs/outputs
-
-- Item reference: unclear; likely stateful; explicitly deferred
-- Anthropic:
-  - SearchResultBlock support (input or output); deferred
-  - Document “content block source” inside document source; deferred (unclear when to use vs top-level text/image)
-    - Note: why content block source exists inside document source for input; unclear when it should be used vs top-level text/image.
-  - Citation types beyond URL; deferred
-    - char location
-    - page location
-    - content block location
-    - search result location
 
 ## Output metadata
 
