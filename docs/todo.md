@@ -137,14 +137,6 @@
     - Must fail closed on unknown keys
   - Note: “P2 can be considered as deferred”
 
-- Top-p
-  - Spec change: add `ModelParam.TopP *float64`
-  - Anthropic: `top_p`
-  - OpenAI Responses: `top_p`
-  - OpenAI Chat: `top_p`
-  - Priority: Anthropic P0, Responses P0, Chat P0
-  - Validation: range `0..1`
-
 - Structured output (output format / JSON schema)
   - Spec change: add `ModelParam.OutputFormat *spec.OutputFormat`
   - OutputFormat minimal shape
@@ -158,7 +150,6 @@
     - `text.format` with `type = text/json_object/json_schema` (plus `json_schema` payload)
   - OpenAI Chat mapping
     - `response_format` with `type = text/json_object/json_schema` (plus `json_schema` payload)
-  - Priority: Anthropic P0, Responses P0, Chat P0
   - Notes
     - Capability-gate if target Responses spec/version lacks `text.format`
 
@@ -169,7 +160,6 @@
   - Anthropic: `tool_choice` (auto/any/tool/none patterns)
   - OpenAI Responses: `tool_choice` (string/object)
   - OpenAI Chat: `tool_choice`
-  - Priority: Anthropic P0, Responses P0, Chat P0
   - Notes
     - Fixes current mismatch where `ToolChoices` effectively means `tools[]` only
 
@@ -178,14 +168,12 @@
   - Anthropic: `tool_choice.*.disable_parallel_tool_use`
   - OpenAI Chat: `parallel_tool_calls` (where supported)
   - OpenAI Responses: best-effort only if endpoint supports equivalent; otherwise ignore with clear documentation
-  - Priority: Anthropic P1, Responses P1, Chat P1
 
 - Stop sequences
   - Spec change: add `ModelParam.StopSequences []string` (or `Stop []string`)
   - Anthropic: `stop_sequences`
   - OpenAI Chat: `stop` (string or array)
   - OpenAI Responses: wrapper-level unsupported for now (omit; no client-side trimming)
-  - Priority: Anthropic P0, Responses P2, Chat P0
   - Notes
     - Old matrix listed Anthropic stop sequences array as not supported
 
@@ -196,11 +184,9 @@
   - OpenAI Responses: `reasoning.verbosity` and summary-related config only if exposed in target API
   - Anthropic: no direct equivalent, no-op
   - OpenAI Chat: no direct equivalent beyond `reasoning_effort`, no-op
-  - Priority: Anthropic P2, Responses P1, Chat P2
 
 - Tool options
   - Max tool calls
-  - Priority: Responses P2, Chat P2
   - Notes
     - Prefer wrapper-enforced cap (reject/ignore extra tool calls) unless a provider-native control exists; must remain stateless
 
@@ -211,6 +197,16 @@
   - Notes
     - Old matrix explicitly said metadata/service tiers not supported; passthrough is the only safe place they could be exposed later
     - Even with passthrough implemented, sensitive/vendor-state-adjacent knobs remain deferred unless explicitly allowlisted
+
+### Deferred Params
+
+- Top-p
+  - Spec change: add `ModelParam.TopP *float64`
+  - Anthropic: `top_p`
+  - OpenAI Responses: `top_p`
+  - OpenAI Chat: `top_p`
+  - Priority: Anthropic P2, Responses P2, Chat P2
+  - Validation: range `0..1`
 
 - Logprobs
   - Spec change: add `ModelParam.LogProbs` config and output fields
@@ -229,10 +225,6 @@
 - Seed and logit_bias
   - Spec change: prefer allowlisted passthrough rather than first-class fields (unless required to normalize)
   - Priority: Responses P2, Chat P2
-
-### Deferred Params
-
-> These are intentionally not standardized right now. If ever implemented, most should go through allowlisted passthrough and must remain stateless.
 
 - Stateful params and server-managed continuation controls (not supported)
   - `background`
