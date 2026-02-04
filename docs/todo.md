@@ -6,11 +6,9 @@
   - [Deferred IO](#deferred-io)
 - [Top-level request params \& controls](#top-level-request-params--controls)
   - [Done Params](#done-params)
-  - [TODO Params](#todo-params)
   - [Deferred Params](#deferred-params)
 - [Tools](#tools)
   - [Done Tools](#done-tools)
-  - [TODO Tools](#todo-tools)
   - [Deferred Tools](#deferred-tools)
 - [Output metadata](#output-metadata)
   - [Done Output](#done-output)
@@ -128,28 +126,18 @@
   - OpenAI Chat: `reasoning_effort` supported as config only
     - Chat does not support reasoning blocks as message content; adapter drops reasoning messages
 
-### TODO Params
-
-- Guardrails for any new top-level params
-  - Constraints
-    - Must be allowlisted
-    - Must not introduce stateful behavior
-    - Must fail closed on unknown keys
-  - Note: “P2 can be considered as deferred”
-
 - Structured output (output format / JSON schema)
   - Spec change: add `ModelParam.OutputFormat *spec.OutputFormat`
   - OutputFormat minimal shape
     - `type = text`
-    - `type = json_object`
     - `type = json_schema` with `schema` object, optional `strict` bool, optional `name` string
   - Anthropic mapping
     - `output_config.format` for `json_schema`
-    - `json_object` cannot be enforced as a first-class mode; document as best-effort (typically instruction-based)
+
   - OpenAI Responses mapping
-    - `text.format` with `type = text/json_object/json_schema` (plus `json_schema` payload)
+    - `text.format` with `type = text/json_schema` (plus `json_schema` payload)
   - OpenAI Chat mapping
-    - `response_format` with `type = text/json_object/json_schema` (plus `json_schema` payload)
+    - `response_format` with `type = text/json_schema` (plus `json_schema` payload)
   - Notes
     - Capability-gate if target Responses spec/version lacks `text.format`
 
@@ -181,12 +169,21 @@
   - Notes
     - Old matrix listed Anthropic stop sequences array as not supported
 
-- Reasoning verbosity and summary control
+- Reasoning summary control
   - Spec change: extend `ReasoningParam` with fields that map to Responses when available, e.g.
     - `Summary *bool` or `SummaryStyle *string`
   - OpenAI Responses: summary-related config only
   - Anthropic: no direct equivalent, no-op
   - OpenAI Chat: no direct equivalent beyond `reasoning_effort`, no-op
+
+### Deferred Params
+
+- Guardrails for any new top-level params
+  - Constraints
+    - Must be allowlisted
+    - Must not introduce stateful behavior
+    - Must fail closed on unknown keys
+  - Note: “P2 can be considered as deferred”
 
 - Tool options
   - Max tool calls
@@ -200,8 +197,6 @@
   - Notes
     - Old matrix explicitly said metadata/service tiers not supported; passthrough is the only safe place they could be exposed later
     - Even with passthrough implemented, sensitive/vendor-state-adjacent knobs remain deferred unless explicitly allowlisted
-
-### Deferred Params
 
 - Top-p
   - Spec change: add `ModelParam.TopP *float64`
@@ -281,18 +276,10 @@
     - Output shape differs by provider; OpenAI often surfaces results as citations/annotations
     - Note: server tool use block with websearch input typed as `any` is odd; watch schema stability and validation strategy
 
-### TODO Tools
-
-- Tool selection policy normalization
-  - (Tracked under Top-level params: `FetchCompletionRequest.ToolPolicy`)
-
-- Disable parallel tool use
-  - (Tracked under Top-level params: `ToolPolicy.DisableParallel`)
+### Deferred Tools
 
 - Tool options
   - Max tool calls (tracked under Top-level params)
-
-### Deferred Tools
 
 - Cross-provider (explicitly not doing / out of scope)
   - Bash/Shell: Local Tool available.
@@ -324,19 +311,19 @@
 
 ### Done Output
 
-- Usage and debug
-  - Normalized: `Usage`, `DebugDetails`
-  - HTTP debugging
-    - Pluggable `CompletionDebugger` interface (span-based)
-    - Built-in `debugclient.HTTPCompletionDebugger`
-    - Scrubbed HTTP request/response metadata attached to `FetchCompletionResponse.DebugDetails`
-  - OpenAI Responses (notes carried forward)
-    - Supported usage: input tokens, output tokens, cached tokens usage
-    - Supported error surfacing
-    - Everything else remains in opaque debug/details payload (not promoted)
-  - Anthropic (notes carried forward)
-    - Supported usage: input/output tokens usage, plus cached token accounting where exposed
-    - Other fields like id/model/stop reason/stop sequence/service tier are not promoted; remain opaque details/debug
+- Usage
+  - Normalized: `Usage`
+  - Supported usage: input tokens, output tokens, cached tokens usage
+  - Supported usage: input/output tokens usage, plus cached token accounting where exposed
+
+- Supported error surfacing
+
+- HTTP debugging - `DebugDetails`
+  - Pluggable `CompletionDebugger` interface (span-based)
+  - Built-in `debugclient.HTTPCompletionDebugger`
+  - Scrubbed HTTP request/response metadata attached to `FetchCompletionResponse.DebugDetails`
+
+- Output params not explicitly decodd are present as opaque debug/details payload.
 
 ### TODO Output
 
