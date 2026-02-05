@@ -127,7 +127,7 @@
     - Chat does not support reasoning blocks as message content; adapter drops reasoning messages
 
 - Structured output (output format / JSON schema)
-  - Spec change: add `ModelParam.OutputFormat *spec.OutputFormat`
+  - Normalized: `ModelParam.OutputFormat *spec.OutputFormat`
   - OutputFormat minimal shape
     - `type = text`
     - `type = json_schema` with `schema` object, optional `strict` bool, optional `name` string
@@ -138,40 +138,32 @@
     - `text.format` with `type = text/json_schema` (plus `json_schema` payload)
   - OpenAI Chat mapping
     - `response_format` with `type = text/json_schema` (plus `json_schema` payload)
-  - Notes
-    - Capability-gate if target Responses spec/version lacks `text.format`
 
 - Text generated verbosity control:
   - `Verbosity *string`
   - In OpenAI responses
 
 - Tool selection policy (separate from tool definitions)
-  - Spec change
-    - Add `FetchCompletionRequest.ToolPolicy *spec.ToolPolicy`
-    - Keep `ToolChoices` as tool definitions available (avoid breaking callers)
+  - Normalized
+    - `FetchCompletionRequest.ToolPolicy *spec.ToolPolicy`
+    - `ToolChoices` as tool definitions available
   - Anthropic: `tool_choice` (auto/any/tool/none patterns)
   - OpenAI Responses: `tool_choice` (string/object)
   - OpenAI Chat: `tool_choice`
-  - Notes
-    - Fixes current mismatch where `ToolChoices` effectively means `tools[]` only
 
 - Disable parallel tool use (at most one tool call)
-  - Spec change: add `ToolPolicy.DisableParallel bool` (or equivalent)
+  - Normalized: `ToolPolicy.DisableParallel bool`
   - Anthropic: `tool_choice.*.disable_parallel_tool_use`
-  - OpenAI Chat: `parallel_tool_calls` (where supported)
-  - OpenAI Responses: best-effort only if endpoint supports equivalent; otherwise ignore with clear documentation
+  - OpenAI Chat: `parallel_tool_calls`
 
 - Stop sequences
-  - Spec change: add `ModelParam.StopSequences []string` (or `Stop []string`)
+  - Normalized: `ModelParam.StopSequences []string`
   - Anthropic: `stop_sequences`
   - OpenAI Chat: `stop` (string or array)
   - OpenAI Responses: wrapper-level unsupported for now (omit; no client-side trimming)
-  - Notes
-    - Old matrix listed Anthropic stop sequences array as not supported
 
 - Reasoning summary control
-  - Spec change: extend `ReasoningParam` with fields that map to Responses when available, e.g.
-    - `Summary *bool` or `SummaryStyle *string`
+  - Normalized: extend `ReasoningParam` with `SummaryStyle *string`
   - OpenAI Responses: summary-related config only
   - Anthropic: no direct equivalent, no-op
   - OpenAI Chat: no direct equivalent beyond `reasoning_effort`, no-op
